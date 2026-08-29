@@ -19,6 +19,10 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.0
         with:
+          # Pinned: pixi.lock is written by this version, and pixi changed how
+          # it hashes git source dependencies after it, so a newer pixi
+          # rejects the committed lock with "lock file not up-to-date".
+          pixi-version: v0.71.1
           environments: ${{ matrix.env }}
 
       - name: Unit tests
@@ -54,6 +58,7 @@ jobs:
 
       - uses: prefix-dev/setup-pixi@v0.9.0
         with:
+          pixi-version: v0.71.1
           manifest-path: avro.mojo/pixi.toml
           environments: ${{ matrix.env }}
 
