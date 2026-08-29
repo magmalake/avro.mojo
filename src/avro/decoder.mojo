@@ -152,12 +152,17 @@ struct Decoder[origin: ImmOrigin](Copyable, Movable):
 
     def read_value_at(mut self, schema: Schema, i: Int) raises -> Value:
         var arena = List[ValueNode]()
-        _ = self._decode(schema, i, arena)
+        _ = self.decode_into(schema, i, arena)
         return Value(ArcPointer(arena^), 0)
 
-    def _decode(
+    def decode_into(
         mut self, schema: Schema, i: Int, mut arena: List[ValueNode]
     ) raises -> Int:
+        """Decode node `i` straight into `arena`, returning its index.
+
+        The building block `avro.resolve` shares for the parts of a resolved
+        read that need no conversion.
+        """
         var kind = schema.kind(i)
         var here = len(arena)
         if kind == NULL:
@@ -272,7 +277,7 @@ struct Decoder[origin: ImmOrigin](Copyable, Movable):
     def _decode_child(
         mut self, schema: Schema, i: Int, mut arena: List[ValueNode]
     ) raises -> Int:
-        return self._decode(schema, i, arena)
+        return self.decode_into(schema, i, arena)
 
     # ── skipping ───────────────────────────────────────────────────────────
 

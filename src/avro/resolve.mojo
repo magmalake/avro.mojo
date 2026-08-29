@@ -142,7 +142,7 @@ struct ResolvedReader(Copyable, Movable):
     ) raises -> Int:
         ref n = self.plan[p]
         if n.action == RA_DIRECT:
-            return d._decode(self.writer, n.w, arena)
+            return d.decode_into(self.writer, n.w, arena)
         if n.action == RA_PROMOTE:
             var wk = self.writer.kind(n.w)
             var rk = self.reader.kind(n.r)

@@ -216,9 +216,11 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
         return out^
 
     def count_blocks(self) raises -> Int:
-        """Walk the block headers without decompressing anything."""
-        var p = self.pos
-        # Restart from the first block: rewind past whatever was consumed.
+        """Walk every block header, without decompressing anything.
+
+        Independent of how far iteration has got: it re-reads the header and
+        then strides over the blocks.
+        """
         var d = Decoder(Span(self.data))
         d.pos = 4
         while True:
@@ -235,7 +237,6 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
             var size = Int(d.read_long())
             d.skip(size + SYNC_SIZE)
             blocks += 1
-        _ = p
         return blocks
 
 
@@ -266,6 +267,8 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
     var block_count: Int
     var started: Bool
     var closed: Bool
+    var schema_json: String
+    """What to write as `avro.schema`; the printed schema unless overridden."""
 
     def __init__(
         out self,
@@ -292,6 +295,7 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
         self.block_count = 0
         self.started = False
         self.closed = False
+        self.schema_json = String()
 
     def __init__(out self, *, copy: Self):
         self.schema = copy.schema.copy()
@@ -305,6 +309,7 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
         self.block_count = copy.block_count
         self.started = copy.started
         self.closed = copy.closed
+        self.schema_json = copy.schema_json
 
     def __init__(out self, *, deinit move: Self):
         self.schema = move.schema^
@@ -318,6 +323,7 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
         self.block_count = move.block_count
         self.started = move.started
         self.closed = move.closed
+        self.schema_json = move.schema_json^
 
     def set_sync_marker(mut self, marker: Span[UInt8, _]) raises:
         """Pin the sync marker — the tests need reproducible files."""
@@ -347,13 +353,27 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
     def set_metadata_string(mut self, key: StringSlice, value: StringSlice) raises:
         self.set_metadata(key, value.as_bytes())
 
+    def set_schema_json(mut self, text: StringSlice) raises:
+        """Write `text` verbatim as `avro.schema`.
+
+        `to_json()` prints an equivalent schema, not a byte-identical one.
+        Apache Iceberg writers that want their manifests to match another
+        implementation's bytes can hand over the exact JSON here; it is the
+        caller's job to keep it equivalent to the schema being written.
+        """
+        if self.started:
+            raise Error("avro.DataFileWriter: the header is already written")
+        self.schema_json = String(text)
+
     def _write_header(mut self) raises:
         var e = Encoder()
         e.out.append(MAGIC0)
         e.out.append(MAGIC1)
         e.out.append(MAGIC2)
         e.out.append(MAGIC3)
-        var schema_json = self.schema.to_json()
+        var schema_json = (
+            self.schema_json if self.schema_json else self.schema.to_json()
+        )
         var n = len(self.meta_keys) + 2
         e.write_long(Int64(n))
         e.write_string("avro.schema")

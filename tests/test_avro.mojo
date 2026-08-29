@@ -800,5 +800,21 @@ def test_fastavro_round_trip_through_us() raises:
     assert_equal(seen, FIXTURE_COUNT)
 
 
+def test_writer_can_pin_the_schema_json() raises:
+    """Iceberg writers may want the exact schema text in avro.schema."""
+    var text = String(
+        '{"type":"record","name":"R","fields":['
+        '{"name":"a","type":"int","field-id":42}]}'
+    )
+    var w = DataFileWriter(parse_schema(text), "null")
+    w.set_schema_json(text)
+    var b = RecordBuilder()
+    b.add("a", Value.int(1))
+    w.append(b^.build())
+    var r = DataFileReader.from_bytes(Span(w.bytes()))
+    assert_equal(r.schema_json(), text)
+    assert_equal(r.schema.field(r.schema.root, 0).field_id(), 42)
+
+
 def main() raises:
     TestSuite.discover_tests[__functions_in_module()]().run()

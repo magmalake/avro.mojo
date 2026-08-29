@@ -115,7 +115,10 @@ r.sync_marker     # the file's 16 bytes
 
 The writer starts a new block every `sync_interval` uncompressed bytes
 (64 000 by default) and writes the sync marker after each one; the reader
-verifies it.
+verifies it. `w.set_sync_marker(...)` pins the marker for reproducible files,
+and `w.set_schema_json(text)` writes an exact schema text as `avro.schema`
+instead of the printed form — for a writer that wants its manifests to match
+another implementation's bytes.
 
 ### Schema resolution
 
@@ -239,7 +242,7 @@ pixi run bench
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 40 tests; the codec suite adds 8. Both run on stable 1.0.0
+The core suite is 41 tests; the codec suite adds 8. Both run on stable 1.0.0
 and on nightly, on `osx-arm64` and `linux-64`.
 
 ## Limitations
