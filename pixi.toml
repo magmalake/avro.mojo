@@ -9,7 +9,15 @@ platforms = ["osx-arm64", "linux-64"]
 
 [tasks]
 # Pure Mojo, no FFI, no external imports — consumers just `-I ../avro.mojo/src`.
-test = { cmd = "mkdir -p build && mojo build tests/test_avro.mojo -I src -o build/avro-test && ./build/avro-test" }
+test = { cmd = "mkdir -p build && mojo build tests/test_avro.mojo -I src -I tests -o build/avro-test && ./build/avro-test" }
+# The optional codecs (snappy, zstandard) pull in the sibling magmalake tins,
+# so they live in their own environments: `pixi run -e codecs test-codecs`
+# (nightly) and `-e codecs-stable` (stable 1.0.0). The sibling *sources* are
+# on the include path — see the comment on [feature.codecs.dependencies].
+test-codecs = { cmd = "mkdir -p build && mojo build tests/test_codecs.mojo -I src -I tests -I ../snappy.mojo/src -I ../zstd.mojo/src -o build/avro-codecs-test && ./build/avro-codecs-test" }
+# Interoperability the other way round: write a file per codec and have
+# Python fastavro read it. Needs `uv` on PATH (it builds a throwaway venv).
+crosscheck = { cmd = "bash tools/crosscheck.sh" }
 bench = { cmd = "mkdir -p build && mojo build bench/bench_avro.mojo -I src -o build/avro-bench && ./build/avro-bench" }
 
 # ── pixi-build: consumable as a pixi source dependency ──────────────────────
@@ -40,6 +48,24 @@ modular = ">=26.6.0.dev2026082605,<27"
 [feature.stable.dependencies]
 mojo-compiler = "==1.0.0"
 
+# ── optional codecs ─────────────────────────────────────────────────────────
+# The sibling tins come in as pixi *git source* dependencies, not path
+# dependencies: a path dependency to ../zstd.mojo would break `pixi install`
+# for anyone who cloned only this repo, because pixi solves every environment
+# even when it installs just one.
+#
+# zstd.mojo is an FFI tin — this is what puts libzstd and its dlopen shim
+# (libzstdmojo.so) into the environment. Both tins also install a
+# `lib/mojo/*.mojopkg`, but those are built with stable Mojo 1.0.0 and the
+# nightly compiler cannot load them, so `test-codecs` compiles the siblings
+# from source with `-I ../snappy.mojo/src -I ../zstd.mojo/src` instead. CI
+# checks the two repos out next to this one.
+[feature.codecs.dependencies]
+snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo" }
+zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo" }
+
 [environments]
 default = ["nightly"]
 stable = ["stable"]
+codecs = ["nightly", "codecs"]
+codecs-stable = ["stable", "codecs"]

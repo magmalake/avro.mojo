@@ -19,6 +19,7 @@ from avro import (
 )
 from avro.schema import ARRAY, ENUM, LONG, MAP, RECORD, STRING, UNION
 from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
+from expected import FIXTURE_COUNT, check_everything_record, check_everything_schema
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
@@ -450,8 +451,8 @@ def ocf_round_trip(codec: StringSlice, n: Int, sync_interval: Int) raises:
     assert_equal(len(r.sync_marker), 16)
     var seen = 0
     while r.has_next():
-        var rec = r.next()
-        assert_equal(rec, sample_row(seen))
+        if r.next() != sample_row(seen):
+            raise Error(String("row ", seen, " did not survive the round trip"))
         seen += 1
     assert_equal(seen, n)
     if sync_interval < 100:
@@ -606,7 +607,8 @@ def test_iceberg_manifest_re_encodes_byte_identically() raises:
     var back = r2.read_all()
     assert_equal(len(back), len(recs))
     for i in range(len(recs)):
-        assert_equal(back[i], recs[i])
+        if back[i] != recs[i]:
+            raise Error(String("manifest entry ", i, " changed"))
 
 
 # ── schema resolution ──────────────────────────────────────────────────────
@@ -750,6 +752,52 @@ def test_resolve_rejects_impossible() raises:
     except e:
         failed2 = True
     assert_true(failed2)
+
+
+# ── files written by Python fastavro ───────────────────────────────────────
+
+
+def read_fastavro_fixture(codec: StringSlice) raises:
+    var r = DataFileReader.open(
+        String("tests/fixtures/fastavro_", codec, ".avro")
+    )
+    assert_equal(r.codec, codec)
+    assert_equal(r.metadata_string("written-by"), "fastavro")
+    assert_equal(r.metadata_string("note"), "avro.mojo fixture")
+    check_everything_schema(r.schema)
+    # fastavro's sync_interval=800 forces many small blocks.
+    assert_true(r.count_blocks() > 5)
+    var seen = 0
+    while r.has_next():
+        var rec = r.next()
+        check_everything_record(rec, seen)
+        seen += 1
+    assert_equal(seen, FIXTURE_COUNT)
+
+
+def test_fastavro_null_fixture() raises:
+    read_fastavro_fixture("null")
+
+
+def test_fastavro_deflate_fixture() raises:
+    read_fastavro_fixture("deflate")
+
+
+def test_fastavro_round_trip_through_us() raises:
+    """Decode fastavro's file, rewrite it ourselves, decode it again."""
+    var r = DataFileReader.open("tests/fixtures/fastavro_deflate.avro")
+    var schema = r.schema.copy()
+    var recs = r.read_all()
+    var w = DataFileWriter(schema.copy(), "deflate", 900)
+    for rec in recs:
+        w.append(rec)
+    var raw = w.bytes()
+    var r2 = DataFileReader.from_bytes(Span(raw))
+    var seen = 0
+    while r2.has_next():
+        check_everything_record(r2.next(), seen)
+        seen += 1
+    assert_equal(seen, FIXTURE_COUNT)
 
 
 def main() raises:

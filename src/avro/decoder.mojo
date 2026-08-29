@@ -201,7 +201,7 @@ struct Decoder[origin: ImmOrigin](Copyable, Movable):
         if kind == ENUM:
             var n = ValueNode.of(ENUM)
             var idx = Int(self.read_long())
-            var syms = schema.symbols(i)
+            ref syms = schema.nodes[i].symbols
             if idx < 0 or idx >= len(syms):
                 raise Error(String("avro.Decoder: enum index ", idx, " out of range"))
             n.i = Int64(idx)
@@ -222,15 +222,18 @@ struct Decoder[origin: ImmOrigin](Copyable, Movable):
             return here
         if kind == RECORD:
             var n = ValueNode.of(RECORD)
-            var nf = schema.num_fields(i)
+            var nf = len(schema.nodes[i].fields)
             var names = List[String](capacity=nf)
             for k in range(nf):
-                names.append(schema.field(i, k).name)
+                # `schema.field(i, k)` would copy the whole Field — doc,
+                # aliases, props and all — once per record.
+                names.append(schema.nodes[i].fields[k].name)
             n.keys = names^
             arena.append(n^)
             var kids = List[Int](capacity=nf)
             for k in range(nf):
-                var c = self._decode_child(schema, schema.field_type(i, k), arena)
+                var ft = schema.nodes[i].fields[k].type_index
+                var c = self._decode_child(schema, ft, arena)
                 kids.append(c)
             arena[here].kids = kids^
             return here
@@ -297,8 +300,8 @@ struct Decoder[origin: ImmOrigin](Copyable, Movable):
             var b = Int(self.read_long())
             self._skip_child(schema, schema.branch(i, b))
         elif kind == RECORD:
-            for k in range(schema.num_fields(i)):
-                self._skip_child(schema, schema.field_type(i, k))
+            for k in range(len(schema.nodes[i].fields)):
+                self._skip_child(schema, schema.nodes[i].fields[k].type_index)
         elif kind == ARRAY:
             while True:
                 var count = Int(self.read_block_count())

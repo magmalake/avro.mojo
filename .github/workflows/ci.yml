@@ -23,3 +23,40 @@ jobs:
 
       - name: Unit tests
         run: pixi run -e ${{ matrix.env }} test
+
+  codecs:
+    # The optional snappy / zstandard codecs. Both sibling tins ship a
+    # `.mojopkg` built with stable Mojo that the nightly compiler cannot load,
+    # so the sources are checked out next to this repo and put on the include
+    # path; the pixi git source dependencies are still what installs libzstd
+    # and its dlopen shim.
+    name: codecs ${{ matrix.env == 'codecs' && 'nightly' || 'stable' }} / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        env: [codecs, codecs-stable]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: avro.mojo
+
+      - uses: actions/checkout@v4
+        with:
+          repository: magmalake/snappy.mojo
+          path: snappy.mojo
+
+      - uses: actions/checkout@v4
+        with:
+          repository: magmalake/zstd.mojo
+          path: zstd.mojo
+
+      - uses: prefix-dev/setup-pixi@v0.9.0
+        with:
+          manifest-path: avro.mojo/pixi.toml
+          environments: ${{ matrix.env }}
+
+      - name: Codec tests
+        working-directory: avro.mojo
+        run: pixi run -e ${{ matrix.env }} test-codecs

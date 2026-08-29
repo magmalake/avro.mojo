@@ -139,20 +139,126 @@ becomes an error only if that branch actually shows up on the wire.
 
 | codec | where it lives | needs |
 |---|---|---|
-| `null` | built in | — |
-| `deflate` | built in (`avro.deflate`, RFC 1951, both directions) | — |
+| `null` | `avro` — built in | — |
+| `deflate` | `avro.deflate` — RFC 1951, both directions | — |
+| `snappy` | `avro_codecs` | [snappy.mojo](https://github.com/magmalake/snappy.mojo) |
+| `zstandard` | `avro_codecs` | [zstd.mojo](https://github.com/magmalake/zstd.mojo) |
 
 `deflate` is implemented here rather than bound to zlib so the core library
 stays dependency-free: `inflate` reads all three block types (stored,
 fixed-Huffman, dynamic-Huffman) and `deflate` emits fixed-Huffman blocks from
-a hash-chain LZ77 matcher.
+a hash-chain LZ77 matcher. Avro wants *raw* DEFLATE — no zlib header, no
+trailing Adler-32 — which is what these two produce and accept.
+
+`snappy` and `zstandard` live in a **separate package**, `avro_codecs`, which
+nothing in `avro` imports. That is what keeps the core dependency-free: a
+consumer that only reads Iceberg manifests never pulls in the sibling tins.
+Reach for them by naming a `CodecSet`:
+
+```mojo
+from avro import DataFileReader
+from avro_codecs import AllCodecs      # or SnappyCodecs / ZstdCodecs
+
+var r = DataFileReader[AllCodecs].open("data.avro")
+```
+
+Avro's `snappy` block is a raw Snappy block with the big-endian CRC-32 of the
+*uncompressed* data appended — four bytes that are not part of Snappy itself,
+so `avro_codecs` adds and verifies them (`avro.crc32` is in-repo for exactly
+this).
+
+The sibling tins arrive as pixi **git source dependencies** in the `codecs`
+feature, not path dependencies: pixi solves every environment even when it
+installs only one, so a path dependency to `../zstd.mojo` would break
+`pixi install` for anyone who cloned just this repo. Both tins also install a
+`lib/mojo/*.mojopkg`, but those are built with stable Mojo 1.0.0 and the
+nightly compiler cannot load them, so `test-codecs` compiles the siblings
+from source (`-I ../snappy.mojo/src -I ../zstd.mojo/src`) and CI checks the
+two repos out next to this one.
+
+## Interoperability
+
+Both directions are checked against Python
+[fastavro](https://github.com/fastavro/fastavro) 1.12.2.
+
+**Python → us.** `tests/fixtures/fastavro_{null,deflate,snappy,zstandard}.avro`
+are written by `tools/gen_fixtures.py`: 240 records of a schema with one of
+every Avro type — including an enum, a fixed, an array, a map, a three-way
+union, a nested record, and `date` / `timestamp-micros` / `decimal(9,2)`
+logical types — at `sync_interval=800` so each file has ~30 blocks. The tests
+decode all four and check every field of every record.
+
+`tests/fixtures/iceberg_manifest.avro` and `iceberg_manifest_list.avro` are
+real Apache Iceberg v2 metadata, produced by
+[iceberg-rs.mojo](https://github.com/magmalake/iceberg-rs.mojo)'s test
+warehouse. They decode with field ids intact and match what fastavro reads.
+
+**Us → Python.** `pixi run -e codecs crosscheck` writes the same 240 records
+with each codec and has fastavro read them back:
+
+```
+fastavro 1.12.2 reading avro.mojo's output:
+  null        25499 bytes  240 records  OK
+  deflate     17544 bytes  240 records  OK
+  snappy      20030 bytes  240 records  OK
+  zstandard   16726 bytes  240 records  OK
+all 4 codecs round-trip through fastavro
+```
+
+## Performance
+
+`pixi run bench` — 100 000 six-field records (a long, a string, a double, a
+boolean, a two-element array and an optional string), on an Apple M-series
+Mac (`osx-arm64`, nightly Mojo). MB/s is measured against the uncompressed
+datum stream (4.0 MiB).
+
+| operation | throughput | rows/s |
+|---|---|---|
+| encode (datum stream) | 217 MB/s | 5.5 M |
+| decode (datum stream) | 44 MB/s | 1.1 M |
+| OCF write, `null` | 231 MB/s | 5.9 M |
+| **OCF read, `null`** | **45 MB/s** | **1.1 M** |
+| OCF write, `deflate` | 39 MB/s | 1.0 M |
+| OCF read, `deflate` | 31 MB/s | 0.8 M |
+| `deflate` alone | 45 MB/s | — |
+| `inflate` alone | 104 MB/s | — |
+
+Decoding is the slower direction because every record materialises a fresh
+`Value` arena — the price of a dynamically typed datum. A schema-specialised
+reader (decode straight into the consumer's own struct) would skip that, and
+is the obvious next step if manifest reading ever shows up in a profile.
 
 ## Test
 
 ```sh
-pixi run -e stable test    # stable Mojo 1.0.0
-pixi run -e default test   # nightly
+pixi run -e stable test           # core: stable Mojo 1.0.0
+pixi run -e default test          # core: nightly
+pixi run -e codecs-stable test-codecs   # + snappy / zstandard
+pixi run -e codecs test-codecs          # ditto, nightly
+pixi run bench
+pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
+
+The core suite is 40 tests; the codec suite adds 8. Both run on stable 1.0.0
+and on nightly, on `osx-arm64` and `linux-64`.
+
+## Limitations
+
+- **Logical types are parsed, not converted.** `decimal` decodes to its
+  `bytes`, `date` to its `int`, `duration` to its 12-byte `fixed`. The schema
+  tells you which they are; interpreting them is the consumer's call.
+- **No JSON encoding of data.** Avro's JSON *datum* encoding is not
+  implemented; `Value.to_json()` is a debug rendering (unions collapse to
+  their branch, `bytes` render as `"0x…"` hex), not the spec's format.
+- **No single-object encoding or schema registry framing.** The Rabin
+  fingerprint (`schema.fingerprint()`) is there, the `C3 01` envelope is not.
+- **`bzip2` and `xz` codecs** are not implemented.
+- **Resolution does not do record aliases across namespaces** beyond
+  unqualified-name and `aliases` matching, and does not reorder union
+  branches by name.
+- **The writer emits one fixed-Huffman DEFLATE block per Avro block**, so
+  `deflate` files are a little larger than zlib's (level 9) would be — about
+  1.05x on the fixtures. Anything can read them.
 
 ## License
 

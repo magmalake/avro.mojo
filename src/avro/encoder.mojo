@@ -126,7 +126,7 @@ struct Encoder(Copyable, Movable, Defaultable, Sized):
                 )
             self.write_fixed(Span(raw))
         elif kind == ENUM:
-            var syms = schema.symbols(i)
+            ref syms = schema.nodes[i].symbols
             var idx = value.enum_index()
             var sym = value.symbol()
             if sym:
@@ -154,20 +154,22 @@ struct Encoder(Copyable, Movable, Defaultable, Sized):
             self.write_long(Int64(branch))
             self._write_child(schema, schema.branch(i, branch), inner)
         elif kind == RECORD:
-            for k in range(schema.num_fields(i)):
-                var f = schema.field(i, k)
-                var pos = value.index_of(f.name)
+            for k in range(len(schema.nodes[i].fields)):
+                # Borrow the field rather than `schema.field(i, k)`, which
+                # copies its doc, aliases and properties on every record.
+                var pos = value.index_of(schema.nodes[i].fields[k].name)
                 if pos < 0:
                     raise Error(
                         String(
                             "avro.Encoder: record '",
                             schema.name(i),
                             "' is missing field '",
-                            f.name,
+                            schema.nodes[i].fields[k].name,
                             "'",
                         )
                     )
-                self._write_child(schema, f.type_index, value.at(pos))
+                var ft = schema.nodes[i].fields[k].type_index
+                self._write_child(schema, ft, value.at(pos))
         elif kind == ARRAY:
             var n = len(value)
             if n:
