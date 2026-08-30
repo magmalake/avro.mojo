@@ -1,5 +1,7 @@
 # avro.mojo
 
+[![mojoshelf](https://mojoshelf.org/badge/avro-mojo.svg)](https://mojoshelf.org/tins/avro-mojo) [![mojo nightly](https://mojoshelf.org/badge/avro-mojo/nightly.svg)](https://mojoshelf.org/tins/avro-mojo)
+
 [![CI](https://github.com/magmalake/avro.mojo/actions/workflows/ci.yml/badge.svg)](https://github.com/magmalake/avro.mojo/actions/workflows/ci.yml) [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 
 > Part of **magmalake** — data lake building blocks in Mojo.
