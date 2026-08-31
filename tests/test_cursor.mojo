@@ -17,12 +17,14 @@ from std.testing import (
 
 from avro import (
     DataFileReader,
+    DefaultCodecs,
     DataFileWriter,
     RecordCursor,
     Value,
     parse_schema,
     resolve,
 )
+from avro.codec import CodecSet, unknown_codec
 from avro.cursor import DecodePlan
 from avro.schema import ARRAY, BYTES, DOUBLE, ENUM, FIXED, LONG, MAP, STRING
 from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
@@ -446,6 +448,110 @@ def test_a_truncated_block_is_an_error() raises:
     with assert_raises():
         while c.next():
             pass
+
+
+# ── bringing your own codec ────────────────────────────────────────────────
+
+
+struct StoredDeflate(CodecSet):
+    """`null` and `deflate`, with a different `deflate` compressor.
+
+    A `CodecSet` is the seam a consumer substitutes an implementation at —
+    an FFI zlib, say. This one is deliberately a *worse* compressor (it emits
+    RFC 1951 stored blocks, which compress nothing) precisely so the test can
+    tell whose bytes came out, while staying legal raw DEFLATE that the
+    built-in `inflate` reads back.
+    """
+
+    @staticmethod
+    def supports(name: StringSlice) -> Bool:
+        return not name or name == "null" or name == "deflate"
+
+    @staticmethod
+    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+        if not name or name == "null":
+            var copy = List[UInt8](capacity=len(data))
+            copy.extend(data)
+            return copy^
+        if name == "deflate":
+            var out = List[UInt8]()
+            var at = 0
+            while True:
+                var n = len(data) - at
+                if n > 65535:
+                    n = 65535
+                var final = 1 if at + n >= len(data) else 0
+                out.append(UInt8(final))  # BFINAL, BTYPE=00, then byte-aligned
+                out.append(UInt8(n & 0xFF))
+                out.append(UInt8((n >> 8) & 0xFF))
+                out.append(UInt8((~n) & 0xFF))
+                out.append(UInt8(((~n) >> 8) & 0xFF))
+                out.extend(data[at : at + n])
+                at += n
+                if final == 1:
+                    break
+            return out^
+        raise unknown_codec(name)
+
+    @staticmethod
+    def decompress(
+        name: StringSlice, data: Span[UInt8, _]
+    ) raises -> List[UInt8]:
+        return DefaultCodecs.decompress(name, data)
+
+
+def _codec_round_trip_rows(n: Int) raises -> Tuple[String, List[Value]]:
+    var text = String(
+        '{"type":"record","name":"R","fields":['
+        '{"name":"a","type":"long"},{"name":"b","type":"string"}]}'
+    )
+    var rows = List[Value]()
+    for i in range(n):
+        var b = RecordBuilder()
+        b.add("a", Value.long(Int64(i)))
+        b.add("b", Value.string(String("row-", i, "-", i % 7)))
+        rows.append(b^.build())
+    return (text^, rows^)
+
+
+def test_a_substituted_codec_is_read_by_the_built_in_one() raises:
+    var shape = _codec_round_trip_rows(400)
+    var w = DataFileWriter[StoredDeflate](parse_schema(shape[0]), "deflate")
+    for i in range(len(shape[1])):
+        w.append(shape[1][i])
+    var file = w.bytes()
+
+    # Written by the substituted codec, read by the default one.
+    var c = RecordCursor.from_bytes(Span(file))
+    var s_a = c.plan.slot_of("a")
+    var s_b = c.plan.slot_of("b")
+    var i = 0
+    while c.next():
+        assert_equal(c.get_long(s_a), Int64(i))
+        assert_equal(String(c.get_str(s_b)), String("row-", i, "-", i % 7))
+        i += 1
+    assert_equal(i, 400)
+
+    # Stored blocks compress nothing, so the substitution is visible.
+    var d = DataFileWriter(parse_schema(shape[0]), "deflate")
+    for k in range(len(shape[1])):
+        d.append(shape[1][k])
+    assert_true(len(d.bytes()) < len(file))
+
+
+def test_the_built_in_codec_is_read_by_a_substituted_one() raises:
+    var shape = _codec_round_trip_rows(400)
+    var w = DataFileWriter(parse_schema(shape[0]), "deflate")
+    for i in range(len(shape[1])):
+        w.append(shape[1][i])
+    var file = w.bytes()
+    var c = RecordCursor[StoredDeflate].from_bytes(Span(file))
+    var s_a = c.plan.slot_of("a")
+    var i = 0
+    while c.next():
+        assert_equal(c.get_long(s_a), Int64(i))
+        i += 1
+    assert_equal(i, 400)
 
 
 def main() raises:

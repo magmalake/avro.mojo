@@ -251,6 +251,45 @@ Avro's `snappy` block is a raw Snappy block with the big-endian CRC-32 of the
 so `avro_codecs` adds and verifies them (`avro.crc32` is in-repo for exactly
 this).
 
+### Bringing your own
+
+`CodecSet` is a plain trait, and `DataFileReader` / `DataFileWriter` are
+parametrised on it, so a consumer can substitute any implementation of any
+codec — including `deflate`:
+
+```mojo
+struct MyCodecs(CodecSet):
+    @staticmethod
+    def supports(name: StringSlice) -> Bool:
+        return not name or name == "null" or name == "deflate"
+
+    @staticmethod
+    def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+        if name == "deflate":
+            return my_zlib_inflate(data)          # raw DEFLATE, no header
+        return DefaultCodecs.decompress(name, data)
+
+    @staticmethod
+    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+        return DefaultCodecs.compress(name, data)
+
+var r = DataFileReader[MyCodecs].open("manifest.avro")
+var c = RecordCursor[MyCodecs].open("manifest.avro")
+```
+
+Two tests exercise exactly this seam in both directions: a `CodecSet` whose
+`deflate` emits RFC 1951 *stored* blocks writes a file the built-in codec
+reads, and reads a file the built-in codec wrote.
+
+**This repo does not ship a zlib-backed `deflate`, on purpose.** It used to
+be the obvious thing to add — `inflate` was 104 MB/s and every gzip manifest
+paid it. At 860 MB/s it is no longer what makes a manifest read slow: in a
+500-manifest Iceberg scan the decompression does not show up at all next to
+opening the files and parsing their schemas. Trading "no dependencies at all"
+for the remaining ~2.5x against the platform's zlib is not a good deal for
+this library — but it might be for a consumer with a different profile, and
+the seam above is how they take it.
+
 The sibling tins arrive as pixi **git source dependencies** in the `codecs`
 feature, not path dependencies: pixi solves every environment even when it
 installs only one, so a path dependency to `../zstd.mojo` would break
@@ -367,7 +406,7 @@ pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 41 tests, the cursor suite 14, the codec suite 8. All run on
+The core suite is 41 tests, the cursor suite 16, the codec suite 8. All run on
 stable 1.0.0 and on nightly, on `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same
