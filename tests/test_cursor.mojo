@@ -22,10 +22,11 @@ from avro import (
     RecordCursor,
     Value,
     parse_schema,
+    read_file_bytes,
     resolve,
 )
 from avro.codec import CodecSet, unknown_codec
-from avro.cursor import DecodePlan
+from avro.cursor import DecodePlan, PlanCache, schema_hash
 from avro.schema import ARRAY, BYTES, DOUBLE, ENUM, FIXED, LONG, MAP, STRING
 from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
 
@@ -80,7 +81,7 @@ def test_selection_prunes_the_slot_table() raises:
     assert_false(c.plan.has_slot("inner.a"))
     assert_false(c.plan.has_slot("text"))
     # Unselected fields still have ops — the decoder must step over them.
-    assert_true(len(c.plan.ops) > c.plan.num_slots())
+    assert_true(c.plan.num_ops() > c.plan.num_slots())
     assert_true(c.next())
     assert_equal(c.get_long(c.plan.slot_of("i64")), -2000000000)
 
@@ -669,6 +670,146 @@ def test_the_built_in_codec_is_read_by_a_substituted_one() raises:
         assert_equal(c.get_long(s_a), Int64(i))
         i += 1
     assert_equal(i, 400)
+
+
+# ── the plan cache ─────────────────────────────────────────────────────────
+
+
+def _paths_and_first_path(
+    path: StaticString, mut cache: PlanCache
+) raises -> String:
+    """Read a file through `cache` and render its first record's slot paths
+    plus what it decoded, so two runs can be compared as strings."""
+    var c = RecordCursor.open_cached(path, cache)
+    var out = String()
+    var paths = c.plan.paths()
+    for k in range(len(paths)):
+        out += paths[k] + ";"
+    out += "|"
+    var rows = 0
+    while c.next():
+        rows += 1
+        for k in range(len(paths)):
+            var slot = c.plan.slot_of(paths[k])
+            out += String(c.count(slot), ",")
+            for j in range(c.count(slot)):
+                out += String(
+                    "n" if c.is_null(slot, j) else c.get_string(slot, j), "/"
+                )
+    out += String("|rows=", rows)
+    return out^
+
+
+def test_a_repeated_schema_is_compiled_once() raises:
+    var cache = PlanCache()
+    var a = _paths_and_first_path(MANIFEST, cache)
+    var b = _paths_and_first_path(MANIFEST, cache)
+    assert_equal(a, b)
+    assert_equal(cache.misses, 1)
+    assert_equal(cache.hits, 1)
+    assert_equal(len(cache), 1)
+
+
+def test_a_cached_read_matches_an_uncached_one() raises:
+    var on = PlanCache()
+    var off = PlanCache.disabled()
+    assert_equal(
+        _paths_and_first_path(MANIFEST, on),
+        _paths_and_first_path(MANIFEST, off),
+    )
+    assert_equal(
+        _paths_and_first_path(MANIFEST_LIST, on),
+        _paths_and_first_path(MANIFEST_LIST, off),
+    )
+    # A disabled cache stores nothing and never claims a hit.
+    assert_equal(len(off), 0)
+    assert_equal(off.hits, 0)
+    assert_equal(off.misses, 2)
+    # The two files have different schemas, so they got an entry each.
+    assert_equal(len(on), 2)
+
+
+def test_two_schemas_do_not_share_a_plan() raises:
+    var cache = PlanCache()
+    var m = RecordCursor.open_cached(MANIFEST, cache)
+    var l = RecordCursor.open_cached(MANIFEST_LIST, cache)
+    assert_equal(len(cache), 2)
+    assert_true(m.plan_id != l.plan_id)
+    assert_true(m.plan.has_slot("data_file.file_path"))
+    assert_false(l.plan.has_slot("data_file.file_path"))
+    assert_true(l.plan.has_slot("manifest_path"))
+
+
+def test_a_selection_is_part_of_the_key() raises:
+    var cache = PlanCache()
+    var all = RecordCursor.open_cached(MANIFEST, cache)
+    var some = RecordCursor.open_cached(MANIFEST, cache, ["status"])
+    assert_equal(len(cache), 2)
+    assert_equal(cache.hits, 0)
+    assert_true(all.plan.num_slots() > some.plan.num_slots())
+    assert_false(some.plan.has_slot("data_file.file_path"))
+
+
+def test_a_hash_collision_is_caught_by_the_bytes() raises:
+    """Force every key to the same hash: the byte compare is then the only
+    thing keeping two different schemas apart."""
+    var cache = PlanCache()
+    cache.collide_hashes = True
+    var manifest_bytes = read_file_bytes(MANIFEST)
+    var list_bytes = read_file_bytes(MANIFEST_LIST)
+    var m = RecordCursor.of_bytes_cached(manifest_bytes.copy(), cache)
+    var l = RecordCursor.of_bytes_cached(list_bytes.copy(), cache)
+    # The two schemas really do hash apart, and the seam really does make
+    # them collide — so the two entries below are the byte compare working.
+    var ms = m.reader.metadata_vals[
+        m.reader.metadata_index("avro.schema")
+    ].copy()
+    var ls = l.reader.metadata_vals[
+        l.reader.metadata_index("avro.schema")
+    ].copy()
+    assert_true(schema_hash(Span(ms)) != schema_hash(Span(ls)))
+    assert_equal(cache.hash_of(Span(ms)), cache.hash_of(Span(ls)))
+    assert_equal(cache.hash_of(Span(ms)), UInt64(0))
+    assert_equal(len(cache), 2)
+    assert_equal(cache.hits, 0)
+    assert_true(m.plan.has_slot("data_file.file_path"))
+    assert_false(l.plan.has_slot("data_file.file_path"))
+    # And the third read, whose bytes do match the first, is a hit on it.
+    var again = RecordCursor.of_bytes_cached(manifest_bytes.copy(), cache)
+    assert_equal(cache.hits, 1)
+    assert_equal(again.plan_id, m.plan_id)
+
+
+def test_a_deferred_schema_is_parsed_when_something_needs_it() raises:
+    var data = read_file_bytes(MANIFEST)
+    var eager = DataFileReader(data.copy())
+    var lazy = DataFileReader(data.copy(), defer_schema=True)
+    assert_true(eager.schema_ready)
+    assert_false(lazy.schema_ready)
+    # The header itself is fully read either way.
+    assert_equal(len(eager.metadata_keys), len(lazy.metadata_keys))
+    assert_equal(eager.codec, lazy.codec)
+    # Asking for a record parses the schema and decodes the same value.
+    var want = eager.next()
+    var got = lazy.next()
+    assert_true(lazy.schema_ready)
+    assert_equal(
+        want.field("data_file").field("file_path").as_string(),
+        got.field("data_file").field("file_path").as_string(),
+    )
+
+
+def test_metadata_lookup_finds_what_the_writer_wrote() raises:
+    var r = DataFileReader.open(MANIFEST)
+    assert_true(r.metadata_index("avro.schema") >= 0)
+    assert_equal(r.metadata_index("no-such-key"), -1)
+    assert_true(r.has_metadata("schema"))
+    assert_false(r.has_metadata("schema-nope"))
+    var m = r.metadata_map()
+    assert_equal(len(m), len(r.metadata_keys))
+    for k in range(len(r.metadata_keys)):
+        assert_equal(len(m[r.metadata_keys[k]]), len(r.metadata_vals[k]))
+    assert_equal(r.metadata_string("avro.schema"), r.schema_json())
 
 
 def main() raises:

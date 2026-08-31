@@ -5,8 +5,15 @@ An OCF is `Obj\\x01`, a `map<bytes>` of file metadata (carrying at least
 run of blocks, each `count · size · data · sync`.
 
 Apache Iceberg stores its own keys in that same metadata map — `schema`,
-`partition-spec`, `format-version`, `content` — so `metadata` is exposed as
-raw bytes and `metadata_string` as text, alongside the parsed `avro.schema`.
+`partition-spec`, `format-version`, `content` — so the metadata is exposed
+both as raw bytes (`metadata_keys` / `metadata_vals`) and as text
+(`metadata_string`), alongside the parsed `avro.schema`.
+
+The metadata is kept as two parallel lists rather than a `Dict`, in the order
+the file wrote them. A file has a handful of entries, so a linear scan over
+`StringSlice`s beats hashing — and, unlike a `Dict`, looking one up does not
+have to build a `String` first. `metadata_map()` still hands back a `Dict` for
+callers that want one.
 """
 
 from std.collections import Dict
@@ -47,9 +54,14 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
 
     var data: List[UInt8]
     var schema: Schema
-    var metadata: Dict[String, List[UInt8]]
+    """The parsed `avro.schema`. Empty until `ensure_schema()` when the
+    reader was opened with `defer_schema=True`."""
+    var schema_ready: Bool
+    """False only between a `defer_schema=True` open and `ensure_schema()`."""
     var metadata_keys: List[String]
     """Metadata keys in the order the file wrote them."""
+    var metadata_vals: List[List[UInt8]]
+    """Metadata values, parallel to `metadata_keys`."""
     var codec: String
     var sync_marker: List[UInt8]
     var pos: Int
@@ -59,11 +71,22 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
     var block_left: Int
     var block_index: Int
 
-    def __init__(out self, var data: List[UInt8]) raises:
+    def __init__(
+        out self, var data: List[UInt8], *, defer_schema: Bool = False
+    ) raises:
+        """Read the header. `defer_schema` skips parsing the `avro.schema`
+        JSON, which is the expensive half of opening a small file.
+
+        It is for a caller that already holds a compiled `DecodePlan` for
+        this exact schema — see `avro.cursor.PlanCache`. Nothing else changes:
+        the schema is parsed on demand the moment anything needs it, so
+        `next()` and `read_all()` behave the same either way.
+        """
         self.data = data^
         self.schema = Schema()
-        self.metadata = Dict[String, List[UInt8]]()
+        self.schema_ready = False
         self.metadata_keys = List[String]()
+        self.metadata_vals = List[List[UInt8]]()
         self.codec = String("null")
         self.sync_marker = List[UInt8]()
         self.pos = 0
@@ -72,12 +95,15 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
         self.block_left = 0
         self.block_index = -1
         self._read_header()
+        if not defer_schema:
+            self.ensure_schema()
 
     def __init__(out self, *, copy: Self):
         self.data = copy.data.copy()
         self.schema = copy.schema.copy()
-        self.metadata = copy.metadata.copy()
+        self.schema_ready = copy.schema_ready
         self.metadata_keys = copy.metadata_keys.copy()
+        self.metadata_vals = copy.metadata_vals.copy()
         self.codec = copy.codec
         self.sync_marker = copy.sync_marker.copy()
         self.pos = copy.pos
@@ -89,8 +115,9 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
     def __init__(out self, *, deinit move: Self):
         self.data = move.data^
         self.schema = move.schema^
-        self.metadata = move.metadata^
+        self.schema_ready = move.schema_ready
         self.metadata_keys = move.metadata_keys^
+        self.metadata_vals = move.metadata_vals^
         self.codec = move.codec^
         self.sync_marker = move.sync_marker^
         self.pos = move.pos
@@ -110,6 +137,17 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
         owned.extend(data)
         return Self(owned^)
 
+    def ensure_schema(mut self) raises:
+        """Parse `avro.schema` if a `defer_schema=True` open left it unparsed.
+        """
+        if self.schema_ready:
+            return
+        var i = self.metadata_index("avro.schema")
+        self.schema = parse_schema(
+            StringSlice(unsafe_from_utf8=Span(self.metadata_vals[i]))
+        )
+        self.schema_ready = True
+
     def _read_header(mut self) raises:
         var d = Decoder(Span(self.data))
         if len(self.data) < 4:
@@ -120,7 +158,9 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
             or self.data[2] != MAGIC2
             or self.data[3] != MAGIC3
         ):
-            raise Error("avro.DataFileReader: bad magic, not an Avro container file")
+            raise Error(
+                "avro.DataFileReader: bad magic, not an Avro container file"
+            )
         d.pos = 4
         while True:
             var count = Int(d.read_block_count())
@@ -129,17 +169,17 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
             for _k in range(count):
                 var key = d.read_string()
                 var val = d.read_bytes()
-                self.metadata_keys.append(key)
-                self.metadata[key] = val^
+                self.metadata_keys.append(key^)
+                self.metadata_vals.append(val^)
         self.sync_marker = d.read_fixed(SYNC_SIZE)
         self.pos = d.pos
-        if "avro.schema" not in self.metadata:
-            raise Error("avro.DataFileReader: file metadata has no 'avro.schema'")
-        ref raw = self.metadata["avro.schema"]
-        self.schema = parse_schema(StringSlice(unsafe_from_utf8=Span(raw)))
-        if "avro.codec" in self.metadata:
-            ref c = self.metadata["avro.codec"]
-            self.codec = String(from_utf8_lossy=Span(c))
+        if self.metadata_index("avro.schema") < 0:
+            raise Error(
+                "avro.DataFileReader: file metadata has no 'avro.schema'"
+            )
+        var ci = self.metadata_index("avro.codec")
+        if ci >= 0:
+            self.codec = String(from_utf8_lossy=Span(self.metadata_vals[ci]))
         if not self.codec:
             self.codec = String("null")
         if not Self.C.supports(self.codec):
@@ -153,16 +193,37 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
 
     # ── metadata ───────────────────────────────────────────────────────────
 
+    def metadata_index(self, key: StringSlice) -> Int:
+        """Where `key` sits in `metadata_keys`/`metadata_vals`, or -1.
+
+        `Span(reader.metadata_vals[i])` then reads the entry's raw bytes
+        without copying them.
+
+        A linear scan, and deliberately so: a file has a handful of metadata
+        entries, and this compares `StringSlice`s rather than allocating a
+        `String` to hash the way a `Dict` lookup would.
+        """
+        for k in range(len(self.metadata_keys)):
+            if self.metadata_keys[k] == key:
+                return k
+        return -1
+
     def metadata_string(self, key: StringSlice) raises -> String:
         """A metadata entry decoded as UTF-8; "" when the key is absent."""
-        var k = String(key)
-        if k not in self.metadata:
+        var i = self.metadata_index(key)
+        if i < 0:
             return String()
-        ref raw = self.metadata[k]
-        return String(from_utf8_lossy=Span(raw))
+        return String(from_utf8_lossy=Span(self.metadata_vals[i]))
 
     def has_metadata(self, key: StringSlice) -> Bool:
-        return String(key) in self.metadata
+        return self.metadata_index(key) >= 0
+
+    def metadata_map(self) raises -> Dict[String, List[UInt8]]:
+        """The metadata as a `Dict`, for callers that want that shape."""
+        var out = Dict[String, List[UInt8]]()
+        for k in range(len(self.metadata_keys)):
+            out[self.metadata_keys[k]] = self.metadata_vals[k].copy()
+        return out^
 
     def schema_json(self) raises -> String:
         """The schema exactly as the file spelled it."""
@@ -185,7 +246,8 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
         for k in range(SYNC_SIZE):
             if sync[k] != self.sync_marker[k]:
                 raise Error(
-                    "avro.DataFileReader: sync marker mismatch after a data block"
+                    "avro.DataFileReader: sync marker mismatch after a data"
+                    " block"
                 )
         self.pos = d.pos
         self.block_pos = 0
@@ -201,6 +263,7 @@ struct DataFileReader[C: CodecSet = DefaultCodecs](Copyable, Movable):
 
     def next(mut self) raises -> Value:
         """Decode the next record; raises when the file is exhausted."""
+        self.ensure_schema()
         if not self.has_next():
             raise Error("avro.DataFileReader: no more records")
         var d = Decoder(Span(self.block), self.block_pos)
@@ -328,7 +391,9 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
     def set_sync_marker(mut self, marker: Span[UInt8, _]) raises:
         """Pin the sync marker — the tests need reproducible files."""
         if len(marker) != SYNC_SIZE:
-            raise Error("avro.DataFileWriter: a sync marker is exactly 16 bytes")
+            raise Error(
+                "avro.DataFileWriter: a sync marker is exactly 16 bytes"
+            )
         if self.started:
             raise Error("avro.DataFileWriter: the header is already written")
         self.sync_marker = List[UInt8](capacity=SYNC_SIZE)
@@ -340,7 +405,9 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
             raise Error("avro.DataFileWriter: the header is already written")
         var k = String(key)
         if k == "avro.schema" or k == "avro.codec":
-            raise Error(String("avro.DataFileWriter: '", k, "' is written for you"))
+            raise Error(
+                String("avro.DataFileWriter: '", k, "' is written for you")
+            )
         var v = List[UInt8](capacity=len(value))
         v.extend(value)
         for i in range(len(self.meta_keys)):
@@ -350,7 +417,9 @@ struct DataFileWriter[C: CodecSet = DefaultCodecs](Copyable, Movable):
         self.meta_keys.append(k^)
         self.meta_vals.append(v^)
 
-    def set_metadata_string(mut self, key: StringSlice, value: StringSlice) raises:
+    def set_metadata_string(
+        mut self, key: StringSlice, value: StringSlice
+    ) raises:
         self.set_metadata(key, value.as_bytes())
 
     def set_schema_json(mut self, text: StringSlice) raises:

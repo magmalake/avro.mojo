@@ -51,8 +51,11 @@ needs:
   and read back with `field.field_id()`, `schema.element_id(i)`, and friends.
 - **File metadata beyond `avro.*` is reachable.** Iceberg writes `schema`,
   `partition-spec`, `format-version` and `content` into the OCF metadata map.
-  `reader.metadata` exposes the raw bytes; `reader.metadata_string(key)` the
-  text.
+  `reader.metadata_keys` / `metadata_vals` expose the raw bytes;
+  `reader.metadata_string(key)` the text.
+- **Opening five hundred small files is its own problem.** They all carry the
+  same schema, so `PlanCache` parses and compiles it once — see
+  [One plan, many files](#recordcursor).
 - **`["null", T]` is recognised as optional** — `schema.is_optional(i)` and
   `schema.optional_branch(i)`.
 - **Maps with non-string keys**, which Avro (and Iceberg) spell as an array
@@ -178,6 +181,37 @@ files both ways and compares field for field, including files where an
 optional record is present in some rows and absent in others, and absent in
 the middle of an array.
 
+**One plan, many files.** A scan planner opens hundreds of files written by
+one writer, each carrying a byte-identical copy of the same schema, and
+parsing that JSON and compiling it is most of what opening a small Avro file
+costs. `PlanCache` is keyed on the raw `avro.schema` **bytes, before they are
+parsed** — byte equality is the cheap sufficient condition — and hands out a
+plan rather than compiling one:
+
+```mojo
+var cache = PlanCache()                     # caller-owned; there is no global
+for k in range(len(paths)):
+    var c = RecordCursor.open_cached(paths[k], cache)
+    while c.next():
+        ...
+print(cache.hits, "hits,", cache.misses, "misses")
+```
+
+`open_cached`, `of_bytes_cached` and `of_cached` are the three cached
+openers; the selection list is part of the key, because it changes the plan.
+On a hit the file's schema is never parsed at all — the reader is opened with
+`defer_schema=True` and only reads its header. The hash over the key bytes is
+only a *filter*: a hit is confirmed by comparing the bytes themselves, so a
+collision costs a memcmp and never a wrong answer, which
+`test_a_hash_collision_is_caught_by_the_bytes` proves by forcing every key to
+hash to zero. `PlanCache.disabled()` turns the whole thing off without
+changing the code path.
+
+A `DecodePlan` is a **shared handle**: copying one bumps a refcount rather
+than duplicating a few hundred slot paths, and a cursor holds its own
+reference, so a cached plan outlives every cursor built from it no matter
+what order they are destroyed in.
+
 **Resolution** is done at plan-build time, so it costs nothing per record:
 
 ```mojo
@@ -201,9 +235,18 @@ var raw = w.bytes()          # or w.save("out.avro")
 var r = DataFileReader.from_bytes(Span(raw))
 r.schema          # parsed avro.schema
 r.codec           # avro.codec
-r.metadata        # Dict[String, List[UInt8]] — every key, avro.* included
+r.metadata_keys   # every key in the order the file wrote them, avro.* included
+r.metadata_vals   # the values, parallel to the keys
 r.sync_marker     # the file's 16 bytes
+
+r.metadata_index("schema")      # -1 when absent; no String is built to ask
+r.metadata_string("schema")     # the entry as text
+r.metadata_map()                # Dict[String, List[UInt8]], for that shape
 ```
+
+The metadata is two parallel lists rather than a `Dict`: a file has a handful
+of entries, so a linear scan over `StringSlice`s beats hashing — and, unlike
+a `Dict` lookup, asking for one does not have to allocate a `String` first.
 
 The writer starts a new block every `sync_interval` uncompressed bytes
 (64 000 by default) and writes the sync marker after each one; the reader
@@ -403,6 +446,24 @@ Writing is still the slower direction for `deflate`: the encoder is a
 single-slot hash-chain matcher emitting fixed-Huffman blocks, and nothing
 here has needed it to be faster yet.
 
+### Opening many small files
+
+Reading a 4 KB Avro file is not the same problem as reading a big one: the
+per-record cost is nothing and the *fixed* cost is everything. In
+[iceberg.mojo](https://github.com/magmalake/iceberg.mojo), planning a scan
+over 500 manifests written by one writer used to spend about 114 µs per
+manifest before decoding a single entry, most of it parsing 500
+byte-identical copies of the same 5 KB `avro.schema` and recompiling the same
+plan. With a `PlanCache` across those 500 files that falls to **32 µs**, of
+which 11 µs is the `open`/`read`/`close` itself:
+
+| 500 manifests, 4 entries each | fixed per manifest | wall |
+|---|---|---|
+| a fresh plan per file | 114 µs | 62.3 ms |
+| **one `PlanCache`** | **32 µs** | **21.4 ms** |
+
+A hit costs a hash and a memcmp over the schema bytes and a refcount bump.
+
 ## Test
 
 ```sh
@@ -417,7 +478,7 @@ pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 41 tests, the cursor suite 19, the codec suite 8. All run on
+The core suite is 41 tests, the cursor suite 26, the codec suite 8. All run on
 stable 1.0.0 and on nightly, on `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same

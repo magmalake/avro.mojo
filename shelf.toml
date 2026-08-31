@@ -1,5 +1,5 @@
 name = "avro-mojo"
-version = "0.2.0"
+version = "0.3.0"
 description = "Pure-Mojo Apache Avro — schemas, binary codec, Object Container Files, deflate/snappy/zstd"
 tags = ["avro", "iceberg", "data-lake", "serialization", "ocf"]
 # other tins this one depends on; omit if none

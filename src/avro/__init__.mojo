@@ -44,10 +44,13 @@ from avro.datafile import (
 )
 from avro.cursor import (
     DecodePlan,
+    PlanCache,
+    PlanData,
     PlanOp,
     RecordCursor,
     SlotInfo,
     SlotVal,
+    schema_hash,
 )
 from avro.decoder import Decoder
 from avro.deflate import deflate, inflate

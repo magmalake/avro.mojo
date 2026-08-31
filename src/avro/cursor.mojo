@@ -53,7 +53,7 @@ for k in range(n):
 """
 
 from std.collections import Dict
-from std.memory import bitcast
+from std.memory import ArcPointer, bitcast
 
 from avro.codec import CodecSet, DefaultCodecs
 from avro.datafile import DataFileReader, read_file_bytes
@@ -192,8 +192,13 @@ struct SlotVal(Copyable, ImplicitlyCopyable, Movable):
 # ── the plan ───────────────────────────────────────────────────────────────
 
 
-struct DecodePlan(Copyable, Movable):
-    """A schema compiled into a decode program plus its slot table."""
+struct PlanData(Copyable, Movable):
+    """The compiled program itself. Reached through `DecodePlan`.
+
+    This is the expensive thing — a few hundred `String`s and two arenas —
+    and it is immutable once built, which is what lets `DecodePlan` share it
+    rather than copy it.
+    """
 
     var ops: List[PlanOp]
     var kids: List[Int]
@@ -255,16 +260,50 @@ struct DecodePlan(Copyable, Movable):
         self.root = move.root
         self.by_path = move.by_path^
 
+
+struct DecodePlan(Copyable, Movable):
+    """A schema compiled into a decode program plus its slot table.
+
+    A plan is a **shared, immutable handle**: copying one bumps a refcount
+    instead of duplicating the slot paths and the path index. That is what
+    makes `avro.cache.PlanCache` worth having — a scan planner reading five
+    hundred manifests written by one writer compiles the schema once and
+    every cursor after that costs an atomic increment. It also settles the
+    lifetime question: a cursor holds its own reference, so a cached plan
+    outlives every cursor built from it no matter what order they are
+    destroyed in.
+    """
+
+    var data: ArcPointer[PlanData]
+
+    def __init__(out self):
+        self.data = ArcPointer(PlanData())
+
+    def __init__(out self, var data: PlanData):
+        self.data = ArcPointer(data^)
+
+    def __init__(out self, *, copy: Self):
+        self.data = copy.data
+
+    def __init__(out self, *, deinit move: Self):
+        self.data = move.data^
+
     # ── the slot table ─────────────────────────────────────────────────────
 
     def num_slots(self) -> Int:
-        return len(self.slots)
+        return len(self.data[].slots)
+
+    def num_ops(self) -> Int:
+        return len(self.data[].ops)
+
+    def root(self) -> Int:
+        return self.data[].root
 
     def try_slot(self, path: StringSlice) raises -> Int:
         """The slot for `path`, or -1 when the schema has no such field."""
         var k = String(path)
-        if k in self.by_path:
-            return self.by_path[k]
+        if k in self.data[].by_path:
+            return self.data[].by_path[k]
         return -1
 
     def has_slot(self, path: StringSlice) raises -> Bool:
@@ -283,19 +322,20 @@ struct DecodePlan(Copyable, Movable):
         return s
 
     def slot_path(self, slot: Int) -> String:
-        return self.slots[slot].path
+        return self.data[].slots[slot].path
 
     def slot_kind(self, slot: Int) -> Int:
-        return self.slots[slot].kind
+        return self.data[].slots[slot].kind
 
     def slot_depth(self, slot: Int) -> Int:
-        return self.slots[slot].depth
+        return self.data[].slots[slot].depth
 
     def paths(self) -> List[String]:
         """Every slot path, in slot order — handy in tests and REPL work."""
-        var out = List[String](capacity=len(self.slots))
-        for k in range(len(self.slots)):
-            out.append(self.slots[k].path)
+        ref slots = self.data[].slots
+        var out = List[String](capacity=len(slots))
+        for k in range(len(slots)):
+            out.append(slots[k].path)
         return out^
 
     # ── building ───────────────────────────────────────────────────────────
@@ -304,10 +344,8 @@ struct DecodePlan(Copyable, Movable):
     def build(schema: Schema, select: List[String] = []) raises -> DecodePlan:
         """Compile `schema`, keeping only the selected paths (all if empty)."""
         var b = _Builder(select)
-        var plan = DecodePlan()
-        b.plan = plan^
         b.plan.root = b.compile(schema, schema.root, String(), 0, True)
-        return b^.finish()
+        return DecodePlan(b^.finish())
 
     @staticmethod
     def build_resolved(
@@ -316,12 +354,177 @@ struct DecodePlan(Copyable, Movable):
         """Compile a `resolve(writer, reader)` plan: the data is decoded as
         the writer wrote it and lands in the reader's shape."""
         var b = _Builder(select)
-        var plan = DecodePlan()
-        b.plan = plan^
         b.plan.root = b.compile_resolved(
             resolved, resolved.root, String(), 0, True
         )
-        return b^.finish()
+        return DecodePlan(b^.finish())
+
+
+# ── the plan cache ─────────────────────────────────────────────────────────
+
+
+comptime _MIX: UInt64 = 0x9E3779B97F4A7C15
+
+
+def schema_hash(data: Span[UInt8, _]) -> UInt64:
+    """A 64-bit digest of raw schema bytes, eight bytes at a time.
+
+    Only ever a *filter*: `PlanCache` compares the bytes themselves before it
+    trusts a hit, so a collision costs a memcmp and never a wrong answer.
+    """
+    var n = len(data)
+    var h = UInt64(n) * _MIX
+    var p = data.unsafe_ptr()
+    var i = 0
+    while i + 8 <= n:
+        var w = bitcast[DType.uint64, 1](
+            p.unsafe_offset(i).unsafe_load[width=8]()
+        )
+        h = (h ^ w[0]) * _MIX
+        h ^= h >> 29
+        i += 8
+    var tail: UInt64 = 0
+    var shift: UInt64 = 0
+    while i < n:
+        tail |= UInt64(data[i]) << shift
+        shift += 8
+        i += 1
+    h = (h ^ tail) * _MIX
+    h ^= h >> 32
+    return h
+
+
+def _same_bytes(a: Span[UInt8, _], b: Span[UInt8, _]) -> Bool:
+    if len(a) != len(b):
+        return False
+    for k in range(len(a)):
+        if a[k] != b[k]:
+            return False
+    return True
+
+
+def _same_select(a: List[String], b: List[String]) -> Bool:
+    if len(a) != len(b):
+        return False
+    for k in range(len(a)):
+        if a[k] != b[k]:
+            return False
+    return True
+
+
+struct PlanCache(Movable, Sized):
+    """Compiled plans, keyed by the raw `avro.schema` bytes of the file.
+
+    A scan planner opens hundreds of files written by one writer, and every
+    one of them carries a byte-identical copy of the same schema. Parsing
+    that JSON and compiling it is most of what it costs to open a small Avro
+    file; doing it once and handing out a shared `DecodePlan` is what this is
+    for.
+
+    **The key is the bytes, before parsing.** Byte equality is sufficient for
+    two schemas to compile to the same plan, it is what the repetition
+    actually looks like in the wild, and establishing it needs no parsing.
+    The hash is only a filter: a hit is confirmed by comparing the bytes, so
+    a collision is slow and never wrong. The selected paths are part of the
+    key too, because they change the plan.
+
+    The cache is **caller-owned**: there is no global here. Hand one to
+    `RecordCursor.open_cached` for as long as the files belong together —
+    one scan, one directory listing — and let it go afterwards. Plans it
+    handed out stay alive on their own; a cursor holds its own reference.
+
+    ```mojo
+    var cache = PlanCache()
+    for k in range(len(paths)):
+        var c = RecordCursor.open_cached(paths[k], cache)
+        while c.next():
+            ...
+    print(cache.hits, "of", cache.hits + cache.misses)
+    ```
+    """
+
+    var _hashes: List[UInt64]
+    var _keys: List[List[UInt8]]
+    var _selects: List[List[String]]
+    var _plans: List[DecodePlan]
+    var hits: Int
+    var misses: Int
+    var enabled: Bool
+    """False makes every lookup a miss and stores nothing — the escape hatch
+    that lets a test run the same code path with and without the cache."""
+    var collide_hashes: Bool
+    """A test seam: force every key to hash to zero, so the byte compare is
+    the only thing telling two schemas apart. Never set in normal use."""
+
+    def __init__(out self):
+        self._hashes = List[UInt64]()
+        self._keys = List[List[UInt8]]()
+        self._selects = List[List[String]]()
+        self._plans = List[DecodePlan]()
+        self.hits = 0
+        self.misses = 0
+        self.enabled = True
+        self.collide_hashes = False
+
+    def __init__(out self, *, deinit move: Self):
+        self._hashes = move._hashes^
+        self._keys = move._keys^
+        self._selects = move._selects^
+        self._plans = move._plans^
+        self.hits = move.hits
+        self.misses = move.misses
+        self.enabled = move.enabled
+        self.collide_hashes = move.collide_hashes
+
+    @staticmethod
+    def disabled() -> Self:
+        """A cache that never hits and never stores."""
+        var c = Self()
+        c.enabled = False
+        return c^
+
+    def __len__(self) -> Int:
+        return len(self._plans)
+
+    def hash_of(self, key: Span[UInt8, _]) -> UInt64:
+        return 0 if self.collide_hashes else schema_hash(key)
+
+    def find(self, key: Span[UInt8, _], select: List[String]) -> Int:
+        """The entry for these schema bytes and this selection, or -1."""
+        if not self.enabled:
+            return -1
+        var h = self.hash_of(key)
+        for k in range(len(self._hashes)):
+            if self._hashes[k] != h:
+                continue
+            if not _same_bytes(Span(self._keys[k]), key):
+                continue
+            if not _same_select(self._selects[k], select):
+                continue
+            return k
+        return -1
+
+    def insert(
+        mut self,
+        key: Span[UInt8, _],
+        select: List[String],
+        var plan: DecodePlan,
+    ) -> Int:
+        """Store `plan` under these schema bytes; returns its entry number,
+        or -1 when the cache is disabled and nothing was stored."""
+        if not self.enabled:
+            return -1
+        var owned = List[UInt8](capacity=len(key))
+        owned.extend(key)
+        self._hashes.append(self.hash_of(key))
+        self._keys.append(owned^)
+        self._selects.append(select.copy())
+        self._plans.append(plan^)
+        return len(self._plans) - 1
+
+    def plan_at(self, i: Int) -> DecodePlan:
+        """The plan at `i` — a refcount bump, not a copy of the program."""
+        return self._plans[i].copy()
 
 
 def _child_path(parent: String, name: StringSlice) -> String:
@@ -345,11 +548,11 @@ def _under(path: String, prefix: String) -> Bool:
 struct _Builder(Copyable, Movable):
     """Walks a schema (or a resolution plan) and emits ops and slots."""
 
-    var plan: DecodePlan
+    var plan: PlanData
     var select: List[String]
 
     def __init__(out self, select: List[String]):
-        self.plan = DecodePlan()
+        self.plan = PlanData()
         self.select = select.copy()
 
     def __init__(out self, *, copy: Self):
@@ -360,7 +563,7 @@ struct _Builder(Copyable, Movable):
         self.plan = move.plan^
         self.select = move.select^
 
-    def finish(deinit self) -> DecodePlan:
+    def finish(deinit self) -> PlanData:
         return self.plan^
 
     def selected(self, path: String) -> Bool:
@@ -885,7 +1088,7 @@ def _put(
 
 @always_inline
 def _leaf(
-    plan: DecodePlan,
+    plan: PlanData,
     op: PlanOp,
     blk: Span[UInt8, _],
     mut pos: Int,
@@ -999,7 +1202,7 @@ def _leaf(
 
 
 def _run(
-    plan: DecodePlan,
+    plan: PlanData,
     oi: Int,
     blk: Span[UInt8, _],
     mut pos: Int,
@@ -1104,6 +1307,11 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
     var counts: List[Int]
     var index: Int
     """How many records `next()` has returned."""
+    var plan_id: Int
+    """Which `PlanCache` entry the plan came from, or -1 when it was
+    compiled here. Two cursors with the same non-negative id hold the same
+    compiled program, which a caller can use as a cheap stand-in for
+    comparing the schema bytes all over again."""
 
     def __init__(
         out self, var reader: DataFileReader[Self.C], var plan: DecodePlan
@@ -1116,6 +1324,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             self.vals.append(List[SlotVal]())
             self.counts.append(0)
         self.index = 0
+        self.plan_id = -1
 
     def __init__(out self, *, deinit move: Self):
         self.reader = move.reader^
@@ -1123,6 +1332,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
         self.vals = move.vals^
         self.counts = move.counts^
         self.index = move.index
+        self.plan_id = move.plan_id
 
     @staticmethod
     def of(
@@ -1148,6 +1358,63 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
     ) raises -> Self:
         """Take ownership of `data` — no copy, unlike `from_bytes`."""
         return Self.of(DataFileReader[Self.C](data^), select)
+
+    # ── the cached openers ─────────────────────────────────────────────────
+    #
+    # Same three shapes, taking a `PlanCache` the caller owns. On a hit the
+    # file's `avro.schema` is never parsed and no plan is compiled: the
+    # header is read, the bytes are compared, and the cursor takes a
+    # reference to the plan the cache is already holding.
+
+    @staticmethod
+    def of_cached(
+        var reader: DataFileReader[Self.C],
+        mut cache: PlanCache,
+        select: List[String] = [],
+    ) raises -> Self:
+        """Take over `reader`, compiling its schema only if `cache` cannot
+        already answer for the exact bytes it carries."""
+        var si = reader.metadata_index("avro.schema")
+        if si < 0:
+            raise Error("avro.RecordCursor: file metadata has no 'avro.schema'")
+        var at = cache.find(Span(reader.metadata_vals[si]), select)
+        if at >= 0:
+            cache.hits += 1
+            var hit = Self(reader^, cache.plan_at(at))
+            hit.plan_id = at
+            return hit^
+        cache.misses += 1
+        reader.ensure_schema()
+        var plan = DecodePlan.build(reader.schema, select)
+        # A `DecodePlan` copy is a refcount bump, so the cache and the cursor
+        # share one compiled program rather than owning one each.
+        var id = cache.insert(
+            Span(reader.metadata_vals[si]), select, plan.copy()
+        )
+        var c = Self(reader^, plan^)
+        c.plan_id = id
+        return c^
+
+    @staticmethod
+    def open_cached(
+        path: StringSlice, mut cache: PlanCache, select: List[String] = []
+    ) raises -> Self:
+        return Self.of_cached(
+            DataFileReader[Self.C](read_file_bytes(path), defer_schema=True),
+            cache,
+            select,
+        )
+
+    @staticmethod
+    def of_bytes_cached(
+        var data: List[UInt8],
+        mut cache: PlanCache,
+        select: List[String] = [],
+    ) raises -> Self:
+        """Take ownership of `data` — no copy — and use `cache`."""
+        return Self.of_cached(
+            DataFileReader[Self.C](data^, defer_schema=True), cache, select
+        )
 
     @staticmethod
     def resolved(
@@ -1176,8 +1443,8 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             self.counts[s] = 0
         var pos = self.reader.block_pos
         _run(
-            self.plan,
-            self.plan.root,
+            self.plan.data[],
+            self.plan.data[].root,
             Span(self.reader.block),
             pos,
             self.vals,
@@ -1231,7 +1498,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
         if k >= self.counts[slot]:
             return 0
         ref v = self.vals[slot][k]
-        var kind = self.plan.slots[slot].kind
+        var kind = self.plan.slot_kind(slot)
         if kind == FLOAT or kind == DOUBLE:
             return Int64(v.as_double())
         return v.i
@@ -1243,7 +1510,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
         if k >= self.counts[slot]:
             return 0.0
         ref v = self.vals[slot][k]
-        var kind = self.plan.slots[slot].kind
+        var kind = self.plan.slot_kind(slot)
         if kind == FLOAT or kind == DOUBLE:
             return v.as_double()
         return Float64(v.i)
@@ -1262,7 +1529,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             raise Error(
                 String(
                     "avro.RecordCursor: slot '",
-                    self.plan.slots[slot].path,
+                    self.plan.slot_path(slot),
                     (
                         "' is filled from a schema default, which lives on the"
                         " plan rather than in the block — use get_string() or"
@@ -1284,7 +1551,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             return String()
         ref v = self.vals[slot][k]
         if v.off < 0:
-            return self.plan.const_strings[Int(v.i)]
+            return self.plan.data[].const_strings[Int(v.i)]
         return String(
             from_utf8_lossy=Span(self.reader.block)[
                 Int(v.off) : Int(v.off) + Int(v.ln)
@@ -1298,7 +1565,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             return out^
         ref v = self.vals[slot][k]
         if v.off < 0:
-            out.extend(self.plan.const_strings[Int(v.i)].as_bytes())
+            out.extend(self.plan.data[].const_strings[Int(v.i)].as_bytes())
             return out^
         out.reserve(Int(v.ln))
         out.extend(Span(self.reader.block)[Int(v.off) : Int(v.off) + Int(v.ln)])
@@ -1311,18 +1578,18 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
 
     def get_symbol(self, slot: Int, k: Int = 0) raises -> String:
         """The enum symbol's name."""
-        var s = self.plan.slots[slot].symbols
+        var s = self.plan.data[].slots[slot].symbols
         var idx = self.enum_index(slot, k)
-        if s < 0 or idx < 0 or idx >= len(self.plan.symbols[s]):
+        if s < 0 or idx < 0 or idx >= len(self.plan.data[].symbols[s]):
             raise Error(
                 String(
                     "avro.RecordCursor: slot '",
-                    self.plan.slots[slot].path,
+                    self.plan.slot_path(slot),
                     "' has no symbol ",
                     idx,
                 )
             )
-        return self.plan.symbols[s][idx]
+        return self.plan.data[].symbols[s][idx]
 
     def union_branch(self, slot: Int, k: Int = 0) -> Int:
         """The wire branch of the union whose `$branch` slot this is."""
