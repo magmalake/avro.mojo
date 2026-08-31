@@ -23,6 +23,22 @@ while r.has_next():
     print(rec.field("manifest_path").as_string())
 ```
 
+There are two readers. `Value` above is the general one: a dynamically typed
+datum, good for anything. When the file is large and its schema is known,
+`RecordCursor` compiles that schema into a decode plan once and reads records
+into buffers it reuses — about **eleven times faster**, and with no
+allocation per record at all:
+
+```mojo
+from avro import RecordCursor
+
+var c = RecordCursor.open("manifest.avro", ["manifest_path", "added_snapshot_id"])
+var path = c.plan.slot_of("manifest_path")
+var snap = c.plan.slot_of("added_snapshot_id")
+while c.next():
+    print(c.get_str(path), c.get_long(snap))
+```
+
 ## Why
 
 Apache Iceberg's **manifest lists** and **manifests** are Avro Object
@@ -49,6 +65,7 @@ needs:
 from avro import (
     Schema, parse_schema,          # schema tree, JSON in and out
     Value, RecordBuilder,          # a dynamic datum, and how to build one
+    RecordCursor, DecodePlan,      # the schema-compiled reader
     Decoder, Encoder, encode_value,# the binary encoding
     DataFileReader, DataFileWriter,# Object Container Files
     resolve,                       # writer schema -> reader schema
@@ -99,6 +116,68 @@ Constructors: `Value.null()`, `.boolean`, `.int`, `.long`, `.float`,
 `.double`, `.bytes`, `.string`, `.fixed`, `.enum`, `.array`, `.map`,
 `.record`, `.union`; plus `RecordBuilder`, `ArrayBuilder` and `MapBuilder`
 for building one field at a time.
+
+### RecordCursor
+
+A `Value` is convenient and costs about sixty heap allocations per record.
+`RecordCursor` trades that convenience for a decode **plan**: the schema is
+compiled once into a flat program of ops, every value the plan keeps lands in
+a numbered **slot**, and the slot buffers are reused from record to record.
+The hot path allocates nothing.
+
+```mojo
+var c = RecordCursor.open("manifest.avro")          # or .from_bytes / .of_bytes
+var path  = c.plan.slot_of("data_file.file_path")   # name lookup, once
+var rows  = c.plan.slot_of("data_file.record_count")
+while c.next():
+    print(c.get_str(path), c.get_long(rows))
+```
+
+**Slots are paths.** Nesting is flattened with dots. A record field is
+`parent.child`; an array's elements live under `path.element` and a map's
+under `path.key` / `path.value`. `plan.slot_of(path)` raises for a path the
+schema does not have, `plan.try_slot(path)` returns -1 — which is how a
+reader stays version-tolerant. `plan.paths()` lists them all.
+
+**Repeated fields.** The array's own slot holds the element count; a slot
+inside the array holds one value per element, addressed by the accessors'
+second argument:
+
+```mojo
+var lb  = c.plan.slot_of("data_file.lower_bounds")
+var key = c.plan.slot_of("data_file.lower_bounds.element.key")
+var val = c.plan.slot_of("data_file.lower_bounds.element.value")
+for k in range(c.array_len(lb)):
+    print(c.get_long(key, k), c.get_bytes(val, k))
+```
+
+**Selection.** `RecordCursor.open(path, ["a", "b.c"])` keeps only those paths
+and everything under them. The fields nobody asked for still have ops — the
+decoder has to step over their bytes — but they get no slot and nothing is
+stored, which is worth another ~40%.
+
+**Accessors.** `get_bool`, `get_long`, `get_int`, `get_double`, `get_float`,
+`get_str`, `get_string`, `get_bytes`, `get_bytes_copy`, `get_symbol`,
+`enum_index`, `union_branch`, `array_len`, `is_null`, `count`. `get_str` and
+`get_bytes` are **views into the block buffer the cursor is holding**: no
+copy, and the compiler ties them to the cursor so one cannot outlive it. They
+are valid until the next `next()`; `get_string` / `get_bytes_copy` when the
+value has to live longer.
+
+**A union** `["null", T]` is one slot — `is_null(slot)` answers it. Any other
+union also gets a `path.$branch` slot, read with `union_branch`.
+
+**Resolution** is done at plan-build time, so it costs nothing per record:
+
+```mojo
+var rr = resolve(writer_schema, reader_schema)
+var c = RecordCursor.resolved(DataFileReader.open("f.avro"), rr^)
+```
+
+Promotions, field reordering, writer fields the reader dropped, enum
+remapping, union narrowing and scalar defaults are all baked into the plan. A
+default that is itself a record, array or map is the one case the cursor
+refuses — read that file through `Value`.
 
 ### Object Container Files
 
@@ -212,40 +291,90 @@ all 4 codecs round-trip through fastavro
 
 ## Performance
 
+Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0. MB/s is always against
+the **uncompressed** datum stream, so the `null` and `deflate` rows compare.
+
+### `Value` against `RecordCursor`
+
+`pixi run bench` writes both files and reads each three ways;
+`pixi run bench-fastavro` then reads the very same files with
+[fastavro](https://github.com/fastavro/fastavro) 1.12.2, whose core is
+Cython — the honest reference, not a Python strawman.
+
+100 000 records of a manifest-shaped record (two longs, a path-like string, a
+double, an optional long):
+
+| reader | `null` | `deflate` |
+|---|---|---|
+| `Value` | 82 MB/s, 1.73 M rows/s | 76 MB/s, 1.62 M rows/s |
+| **`RecordCursor`** | **932 MB/s, 19.7 M rows/s** | **510 MB/s, 10.8 M rows/s** |
+| `RecordCursor`, 1 of 5 fields selected | 1319 MB/s, 27.8 M rows/s | 614 MB/s, 13.0 M rows/s |
+| fastavro | 83 MB/s, 1.74 M rows/s | 81 MB/s, 1.71 M rows/s |
+
+100 000 real Iceberg `manifest_entry` records — the fixture's own schema and
+entries, nested `data_file`, four metric maps, partition struct and all:
+
+| reader | `null` | `deflate` |
+|---|---|---|
+| `Value` | 43 MB/s, 127 k rows/s | 42 MB/s, 124 k rows/s |
+| **`RecordCursor`** | **477 MB/s, 1.41 M rows/s** | **386 MB/s, 1.14 M rows/s** |
+| `RecordCursor`, 3 fields selected | 643 MB/s, 1.89 M rows/s | 500 MB/s, 1.47 M rows/s |
+| fastavro | 35 MB/s, 103 k rows/s | 35 MB/s, 103 k rows/s |
+
+So the cursor is **11x** the `Value` path on either shape, 15x with a
+selection, and 11-14x fastavro. The `Value` path itself is already at
+fastavro's speed — which is the honest reason the cursor exists. There was no
+more room inside a dynamically typed datum; the win had to come from not
+building one.
+
+### The rest
+
 `pixi run bench` — 100 000 six-field records (a long, a string, a double, a
-boolean, a two-element array and an optional string), on an Apple M-series
-Mac (`osx-arm64`, nightly Mojo). MB/s is measured against the uncompressed
-datum stream (4.0 MiB).
+boolean, a two-element array and an optional string), 4.0 MiB of datum stream:
 
 | operation | throughput | rows/s |
 |---|---|---|
-| encode (datum stream) | 217 MB/s | 5.5 M |
-| decode (datum stream) | 44 MB/s | 1.1 M |
-| OCF write, `null` | 231 MB/s | 5.9 M |
-| **OCF read, `null`** | **45 MB/s** | **1.1 M** |
-| OCF write, `deflate` | 39 MB/s | 1.0 M |
-| OCF read, `deflate` | 31 MB/s | 0.8 M |
-| `deflate` alone | 45 MB/s | — |
-| `inflate` alone | 104 MB/s | — |
+| encode (datum stream) | 215 MB/s | 5.5 M |
+| decode (datum stream) | 46 MB/s | 1.2 M |
+| OCF write, `null` | 233 MB/s | 5.9 M |
+| OCF write, `deflate` | 40 MB/s | 1.0 M |
+| `deflate` alone | 48 MB/s | — |
+| **`inflate` alone** | **860-1000 MB/s** | — |
 
-Decoding is the slower direction because every record materialises a fresh
-`Value` arena — the price of a dynamically typed datum. A schema-specialised
-reader (decode straight into the consumer's own struct) would skip that, and
-is the obvious next step if manifest reading ever shows up in a profile.
+`inflate` used to be 104 MB/s — a bit-at-a-time "puff" decoder. It now reads
+Huffman codes out of a 512-entry table, refills a 64-bit bit buffer with one
+unaligned eight-byte read, and writes into a window it keeps valid to
+capacity. For scale, the platform's own zlib inflates the same stream at
+about 2200 MB/s, so a `CodecSet` backed by FFI still has something to offer
+(see **Codecs**) — but the pure-Mojo path is no longer the reason a manifest
+read is slow.
+
+Writing is still the slower direction for `deflate`: the encoder is a
+single-slot hash-chain matcher emitting fixed-Huffman blocks, and nothing
+here has needed it to be faster yet.
 
 ## Test
 
 ```sh
 pixi run -e stable test           # core: stable Mojo 1.0.0
+pixi run -e stable test-cursor    # the schema-compiled reader
 pixi run -e default test          # core: nightly
+pixi run -e default test-cursor
 pixi run -e codecs-stable test-codecs   # + snappy / zstandard
 pixi run -e codecs test-codecs          # ditto, nightly
 pixi run bench
+pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 41 tests; the codec suite adds 8. Both run on stable 1.0.0
-and on nightly, on `osx-arm64` and `linux-64`.
+The core suite is 41 tests, the cursor suite 14, the codec suite 8. All run on
+stable 1.0.0 and on nightly, on `osx-arm64` and `linux-64`.
+
+The cursor suite's oracle is the `Value` path: both readers decode the same
+files and every field is compared, over every Avro type on the fastavro
+fixtures and over two real Iceberg manifests. It also asserts the
+no-allocation promise — a second pass over the same bytes must not move
+`slot_watermark()`, which only changes when a slot buffer grows.
 
 ## Limitations
 
@@ -264,6 +393,11 @@ and on nightly, on `osx-arm64` and `linux-64`.
 - **The writer emits one fixed-Huffman DEFLATE block per Avro block**, so
   `deflate` files are a little larger than zlib's (level 9) would be — about
   1.05x on the fixtures. Anything can read them.
+- **A `RecordCursor` slot span is 32-bit**, so a single decompressed block
+  wider than 2 GiB is refused (Avro blocks are kilobytes; the default sync
+  interval is 64 000 bytes). A container-typed schema default cannot be
+  filled by the cursor either. Both raise rather than mislead, and the
+  `Value` path reads such a file fine.
 
 ## License
 
