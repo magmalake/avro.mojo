@@ -147,7 +147,7 @@ struct SlotInfo(Copyable, Movable):
 
 
 @fieldwise_init
-struct SlotVal(Copyable, Movable, ImplicitlyCopyable):
+struct SlotVal(Copyable, ImplicitlyCopyable, Movable):
     """One decoded value — 24 bytes, so a slot buffer stays cache-friendly.
 
     `i` carries integers directly and floats bit-for-bit (`bitcast`, never
@@ -424,9 +424,7 @@ struct _Builder(Copyable, Movable):
             var nb = schema.num_branches(i)
             var bslot = -1
             if want and _needs_branch_slot(schema, i):
-                bslot = self.slot(
-                    String(path, ".$branch"), INT, depth, -1
-                )
+                bslot = self.slot(String(path, ".$branch"), INT, depth, -1)
             var kids = List[Int]()
             for b in range(nb):
                 kids.append(
@@ -451,9 +449,7 @@ struct _Builder(Copyable, Movable):
             var s = self.slot(path, MAP, depth, -1) if want else -1
             var ks = -1
             if want:
-                ks = self.slot(
-                    _child_path(path, "key"), STRING, depth + 1, -1
-                )
+                ks = self.slot(_child_path(path, "key"), STRING, depth + 1, -1)
             var kid = self.compile(
                 schema,
                 schema.values(i),
@@ -608,9 +604,7 @@ struct _Builder(Copyable, Movable):
                     )
             for k in range(len(n.default_slots)):
                 var rf = n.default_slots[k]
-                var fp = _child_path(
-                    path, rr.reader.nodes[n.r].fields[rf].name
-                )
+                var fp = _child_path(path, rr.reader.nodes[n.r].fields[rf].name)
                 kids.append(
                     self.const_op(
                         n.default_values[k],
@@ -639,8 +633,10 @@ struct _Builder(Copyable, Movable):
         if kind == RECORD or kind == ARRAY or kind == MAP:
             raise Error(
                 String(
-                    "avro.DecodePlan: a cursor cannot fill the container"
-                    " default for reader field '",
+                    (
+                        "avro.DecodePlan: a cursor cannot fill the container"
+                        " default for reader field '"
+                    ),
                     path,
                     "' — read this file through the Value API",
                 )
@@ -665,9 +661,7 @@ struct _Builder(Copyable, Movable):
             # the plan and served by `get_string` / `get_bytes_copy`.
             var text = v.as_string()
             self.plan.const_strings.append(text)
-            sv = SlotVal(
-                Int64(len(self.plan.const_strings) - 1), -1, 0, False
-            )
+            sv = SlotVal(Int64(len(self.plan.const_strings) - 1), -1, 0, False)
         self.plan.consts.append(sv)
         return self.push(PlanOp(OP_CONST, s, len(self.plan.consts) - 1, 0, 0))
 
@@ -862,7 +856,9 @@ def _leaf(
             ref m = plan.enum_maps[op.aux]
             if idx < 0 or idx >= len(m):
                 raise Error(
-                    String("avro.RecordCursor: enum index ", idx, " out of range")
+                    String(
+                        "avro.RecordCursor: enum index ", idx, " out of range"
+                    )
                 )
             idx = m[idx]
             if idx < 0:
@@ -1088,8 +1084,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
         return self.counts[slot]
 
     def is_null(self, slot: Int, k: Int = 0) -> Bool:
-        """True when the field was absent, or a union took its `null` branch.
-        """
+        """True when the field was absent, or a union took its `null` branch."""
         if slot < 0 or k >= self.counts[slot]:
             return True
         return self.vals[slot][k].nul
@@ -1141,9 +1136,11 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
                 String(
                     "avro.RecordCursor: slot '",
                     self.plan.slots[slot].path,
-                    "' is filled from a schema default, which lives on the"
-                    " plan rather than in the block — use get_string() or"
-                    " get_bytes_copy()",
+                    (
+                        "' is filled from a schema default, which lives on the"
+                        " plan rather than in the block — use get_string() or"
+                        " get_bytes_copy()"
+                    ),
                 )
             )
         return Span(self.reader.block)[Int(v.off) : Int(v.off) + Int(v.ln)]
@@ -1151,8 +1148,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
     def get_str(
         self, slot: Int, k: Int = 0
     ) raises -> StringSlice[origin_of(self.reader.block)]:
-        """The field as text, without copying. Same lifetime as `get_bytes`.
-        """
+        """The field as text, without copying. Same lifetime as `get_bytes`."""
         return StringSlice(unsafe_from_utf8=self.get_bytes(slot, k))
 
     def get_string(self, slot: Int, k: Int = 0) -> String:
@@ -1178,9 +1174,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
             out.extend(self.plan.const_strings[Int(v.i)].as_bytes())
             return out^
         out.reserve(Int(v.ln))
-        out.extend(
-            Span(self.reader.block)[Int(v.off) : Int(v.off) + Int(v.ln)]
-        )
+        out.extend(Span(self.reader.block)[Int(v.off) : Int(v.off) + Int(v.ln)])
         return out^
 
     def enum_index(self, slot: Int, k: Int = 0) -> Int:

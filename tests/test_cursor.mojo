@@ -31,15 +31,17 @@ from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
 
 comptime FIXTURE: StaticString = "tests/fixtures/fastavro_null.avro"
 comptime MANIFEST: StaticString = "tests/fixtures/iceberg_manifest.avro"
-comptime MANIFEST_LIST: StaticString = "tests/fixtures/iceberg_manifest_list.avro"
+comptime MANIFEST_LIST: StaticString = (
+    "tests/fixtures/iceberg_manifest_list.avro"
+)
 
 
 def hex_of(data: Span[UInt8, _]) -> String:
     comptime H = "0123456789abcdef"
     var out = String()
     for b in data:
-        out += H[byte= Int(b >> 4)]
-        out += H[byte= Int(b & 0xF)]
+        out += H[byte=Int(b >> 4)]
+        out += H[byte=Int(b & 0xF)]
     return out^
 
 
@@ -128,16 +130,20 @@ def _check_against_value(path: StringSlice) raises -> Int:
             atol=Float64(1e-9),
         )
         assert_almost_equal(
-            c.get_double(s_f64), rec.field("f64").as_double(), atol=Float64(1e-12)
+            c.get_double(s_f64),
+            rec.field("f64").as_double(),
+            atol=Float64(1e-12),
         )
         assert_equal(
-            hex_of(c.get_bytes(s_blob)), hex_of(Span(rec.field("blob").as_bytes()))
+            hex_of(c.get_bytes(s_blob)),
+            hex_of(Span(rec.field("blob").as_bytes())),
         )
         assert_equal(String(c.get_str(s_text)), rec.field("text").as_string())
         assert_equal(c.get_symbol(s_suit), rec.field("suit").symbol())
         assert_equal(c.enum_index(s_suit), rec.field("suit").enum_index())
         assert_equal(
-            hex_of(c.get_bytes(s_key)), hex_of(Span(rec.field("key").as_bytes()))
+            hex_of(c.get_bytes(s_key)),
+            hex_of(Span(rec.field("key").as_bytes())),
         )
         assert_equal(
             hex_of(c.get_bytes(s_amount)),
@@ -187,7 +193,9 @@ def test_matches_the_value_path_on_every_type() raises:
 
 
 def test_matches_the_value_path_with_deflate() raises:
-    assert_equal(_check_against_value("tests/fixtures/fastavro_deflate.avro"), 240)
+    assert_equal(
+        _check_against_value("tests/fixtures/fastavro_deflate.avro"), 240
+    )
 
 
 def test_reads_an_iceberg_manifest() raises:
@@ -205,7 +213,9 @@ def test_reads_an_iceberg_manifest() raises:
         n += 1
         var df = rec.field("data_file")
         assert_equal(c.get_long(s_status), rec.field("status").as_long())
-        assert_equal(String(c.get_str(s_path)), df.field("file_path").as_string())
+        assert_equal(
+            String(c.get_str(s_path)), df.field("file_path").as_string()
+        )
         assert_equal(c.get_long(s_rows), df.field("record_count").as_long())
         var lb = df.field("lower_bounds")
         assert_equal(c.array_len(s_lb), len(lb))

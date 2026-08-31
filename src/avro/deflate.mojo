@@ -82,7 +82,7 @@ def _reverse_bits(value: Int, count: Int) -> Int:
     return v
 
 
-struct _Huffman(Copyable, Movable, Defaultable):
+struct _Huffman(Copyable, Defaultable, Movable):
     var counts: List[Int]
     """counts[n] = how many symbols have a code of n bits (n = 0..15)."""
     var symbols: List[Int]
@@ -239,7 +239,7 @@ def _fixed_literal_lengths() -> List[Int]:
     return l^
 
 
-struct _Out(Copyable, Movable, Defaultable, Sized):
+struct _Out(Copyable, Defaultable, Movable, Sized):
     """The inflate output window.
 
     A `List[UInt8]` grown with `append` costs a capacity check per literal
@@ -341,7 +341,9 @@ def inflate(data: Span[UInt8, _]) raises -> List[UInt8]:
                     i += 1
                 elif sym == 16:
                     if i == 0:
-                        raise Error("avro.deflate: repeat with no previous length")
+                        raise Error(
+                            "avro.deflate: repeat with no previous length"
+                        )
                     var prev = lengths[i - 1]
                     var rep = 3 + br.bits(2)
                     for _k in range(rep):
@@ -397,14 +399,16 @@ def _inflate_block(
                 raise Error("avro.deflate: invalid distance symbol")
             var d = t.dist_base[dc] + br.bits(t.dist_extra[dc])
             if d > len(out):
-                raise Error("avro.deflate: distance runs before the output start")
+                raise Error(
+                    "avro.deflate: distance runs before the output start"
+                )
             out.copy_match(d, length)
 
 
 # ── compression ────────────────────────────────────────────────────────────
 
 
-struct _BitWriter(Copyable, Movable, Defaultable):
+struct _BitWriter(Copyable, Defaultable, Movable):
     var out: List[UInt8]
     var bitbuf: UInt32
     var bitcnt: Int
@@ -519,7 +523,11 @@ def deflate(data: Span[UInt8, _]) raises -> List[UInt8]:
 
 
 def _hash3(data: Span[UInt8, _], i: Int) -> Int:
-    var v = (UInt32(data[i]) << 16) | (UInt32(data[i + 1]) << 8) | UInt32(data[i + 2])
+    var v = (
+        (UInt32(data[i]) << 16)
+        | (UInt32(data[i + 1]) << 8)
+        | UInt32(data[i + 2])
+    )
     var h = (v * UInt32(0x1E35A7BD)) >> UInt32(32 - _HASH_BITS)
     return Int(h) & (_HASH_SIZE - 1)
 

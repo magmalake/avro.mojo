@@ -79,7 +79,13 @@ def report(label: StringSlice, bytes: Int, ns: Int, rows: Int):
 
 def main() raises:
     var schema = parse_schema(SCHEMA_JSON)
-    print("avro.mojo bench —", N, "records of", SCHEMA_JSON.byte_length(), "byte schema")
+    print(
+        "avro.mojo bench —",
+        N,
+        "records of",
+        SCHEMA_JSON.byte_length(),
+        "byte schema",
+    )
 
     # Build the rows once so the encode timing is not dominated by Value
     # construction.
@@ -196,9 +202,7 @@ def manifest_shaped_rows() raises -> Tuple[Schema, String, List[Value]]:
         var vals = List[Value]()
         vals.append(Value.long(Int64(i)))
         vals.append(Value.long(Int64(i * 7)))
-        vals.append(
-            Value.string(String("path/to/data/file-", i, ".parquet"))
-        )
+        vals.append(Value.string(String("path/to/data/file-", i, ".parquet")))
         vals.append(Value.double(Float64(i) * 0.5))
         vals.append(Value.union(1, Value.long(Int64(i))))
         rows.append(Value.record(names.copy(), vals^))
@@ -267,12 +271,14 @@ def ratio(a: Int, b: Int) -> String:
     if b == 0:
         return String("-")
     var hundredths = (a * 100) // b
-    return String(hundredths // 100, ".", (hundredths % 100) // 10, hundredths % 10)
+    return String(
+        hundredths // 100, ".", (hundredths % 100) // 10, hundredths % 10
+    )
 
 
-def best_of[reps: Int](
-    file: List[UInt8], mode: Int, select: List[String]
-) raises -> Int:
+def best_of[
+    reps: Int
+](file: List[UInt8], mode: Int, select: List[String]) raises -> Int:
     """Warm best-of-`reps`, so neither side is timed cold."""
     var best = 0
     for r in range(reps):

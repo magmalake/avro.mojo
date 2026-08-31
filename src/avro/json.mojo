@@ -37,7 +37,9 @@ struct JsonNode(Copyable, Movable):
 
     @staticmethod
     def scalar(kind: Int) -> JsonNode:
-        return JsonNode(kind, False, 0, 0.0, String(), List[String](), List[Int]())
+        return JsonNode(
+            kind, False, 0, 0.0, String(), List[String](), List[Int]()
+        )
 
 
 struct JsonDoc(Copyable, Movable, Writable):
@@ -162,8 +164,8 @@ def write_json_string(s: StringSlice, mut out: String):
             out += "\\f"
         elif b < 0x20:
             out += "\\u00"
-            out += _HEX[byte= Int(b >> 4)]
-            out += _HEX[byte= Int(b & 0xF)]
+            out += _HEX[byte=Int(b >> 4)]
+            out += _HEX[byte=Int(b & 0xF)]
         else:
             # Pass every other byte through: the input is already UTF-8 and
             # JSON permits raw UTF-8 in strings.
@@ -215,7 +217,13 @@ struct _JsonParser(Copyable, Movable):
 
     def _expect(mut self, c: UInt8) raises:
         if self.pos >= len(self.src) or self.src[self.pos] != c:
-            _ = self._fail(String("expected '", StringSlice(unsafe_from_utf8=Span(_one_byte(c))), "'"))
+            _ = self._fail(
+                String(
+                    "expected '",
+                    StringSlice(unsafe_from_utf8=Span(_one_byte(c))),
+                    "'",
+                )
+            )
         self.pos += 1
 
     def _push(mut self, var node: JsonNode) -> Int:
@@ -280,11 +288,16 @@ struct _JsonParser(Copyable, Movable):
             var c = self.src[self.pos]
             if c >= UInt8(ord("0")) and c <= UInt8(ord("9")):
                 self.pos += 1
-            elif c == UInt8(ord(".")) or c == UInt8(ord("e")) or c == UInt8(ord("E")):
+            elif (
+                c == UInt8(ord("."))
+                or c == UInt8(ord("e"))
+                or c == UInt8(ord("E"))
+            ):
                 is_float = True
                 self.pos += 1
             elif (c == UInt8(ord("-")) or c == UInt8(ord("+"))) and (
-                self.src[self.pos - 1] == UInt8(ord("e")) or self.src[self.pos - 1] == UInt8(ord("E"))
+                self.src[self.pos - 1] == UInt8(ord("e"))
+                or self.src[self.pos - 1] == UInt8(ord("E"))
             ):
                 self.pos += 1
             else:
@@ -351,12 +364,22 @@ struct _JsonParser(Copyable, Movable):
                     buf.append(UInt8(ord("\\")))
                 elif e == UInt8(ord("u")):
                     var cp = self._hex4()
-                    if cp >= 0xD800 and cp <= 0xDBFF and self.pos + 1 < len(self.src):
-                        if self.src[self.pos] == UInt8(ord("\\")) and self.src[self.pos + 1] == UInt8(ord("u")):
+                    if (
+                        cp >= 0xD800
+                        and cp <= 0xDBFF
+                        and self.pos + 1 < len(self.src)
+                    ):
+                        if self.src[self.pos] == UInt8(ord("\\")) and self.src[
+                            self.pos + 1
+                        ] == UInt8(ord("u")):
                             self.pos += 2
                             var lo = self._hex4()
                             if lo >= 0xDC00 and lo <= 0xDFFF:
-                                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00)
+                                cp = (
+                                    0x10000
+                                    + ((cp - 0xD800) << 10)
+                                    + (lo - 0xDC00)
+                                )
                             else:
                                 _encode_utf8(cp, buf)
                                 cp = lo
