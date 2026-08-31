@@ -189,10 +189,13 @@ struct _JsonParser(Copyable, Movable):
     var doc: JsonDoc
 
     def __init__(out self, text: StringSlice):
-        self.src = List[UInt8]()
+        self.src = List[UInt8](capacity=text.byte_length())
         self.src.extend(text.as_bytes())
         self.pos = 0
         self.doc = JsonDoc()
+        # A JSON value is at least a couple of bytes, so this over-reserves
+        # a little and never grows the arena for a document of this size.
+        self.doc.nodes.reserve(text.byte_length() // 8 + 8)
 
     def _fail(self, msg: StringSlice) raises -> Int:
         raise Error(String("avro.json: ", msg, " at byte ", self.pos))
@@ -299,7 +302,24 @@ struct _JsonParser(Copyable, Movable):
 
     def _string(mut self) raises -> String:
         self._expect(UInt8(ord('"')))
-        var buf = List[UInt8]()
+        # Fast path: almost every string in a schema — and every object key —
+        # has no escape in it, so it can be sliced straight out of the source
+        # instead of appended a byte at a time into a scratch buffer.
+        var start = self.pos
+        var at = start
+        while at < len(self.src):
+            var c = self.src[at]
+            if c == UInt8(ord('"')):
+                self.pos = at + 1
+                return String(from_utf8=Span(self.src)[start:at])
+            if c == UInt8(ord("\\")):
+                break
+            at += 1
+        if at >= len(self.src):
+            _ = self._fail("unterminated string")
+        var buf = List[UInt8](capacity=at - start + 16)
+        buf.extend(Span(self.src)[start:at])
+        self.pos = at
         while True:
             if self.pos >= len(self.src):
                 _ = self._fail("unterminated string")
