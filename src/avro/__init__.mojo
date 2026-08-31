@@ -11,6 +11,20 @@ while r.has_next():
     print(rec.field("manifest_path").as_string())
 ```
 
+`Value` is the general reader. When the schema is known and the file is
+large — a scan planner walking manifests, say — `RecordCursor` compiles the
+schema into a decode plan once and then reads records into reused buffers,
+about ten times faster and with no per-record allocation:
+
+```mojo
+from avro import RecordCursor
+
+var c = RecordCursor.open("manifest.avro", ["manifest_path"])
+var path = c.plan.slot_of("manifest_path")
+while c.next():
+    print(c.get_str(path))
+```
+
 Everything reachable from this module is dependency-free (the `null` and
 `deflate` block codecs are implemented in this repo). `snappy` and
 `zstandard` live in `avro.ext_snappy` / `avro.ext_zstd`, which pull in the
@@ -27,6 +41,13 @@ from avro.datafile import (
     random_sync_marker,
     read_file_bytes,
     write_file_bytes,
+)
+from avro.cursor import (
+    DecodePlan,
+    PlanOp,
+    RecordCursor,
+    SlotInfo,
+    SlotVal,
 )
 from avro.decoder import Decoder
 from avro.deflate import deflate, inflate

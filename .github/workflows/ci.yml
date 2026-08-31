@@ -28,6 +28,9 @@ jobs:
       - name: Unit tests
         run: pixi run -e ${{ matrix.env }} test
 
+      - name: Cursor tests
+        run: pixi run -e ${{ matrix.env }} test-cursor
+
   codecs:
     # The optional snappy / zstandard codecs. Both sibling tins ship a
     # `.mojopkg` built with stable Mojo that the nightly compiler cannot load,
