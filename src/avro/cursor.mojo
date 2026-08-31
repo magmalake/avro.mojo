@@ -433,6 +433,11 @@ struct PlanCache(Movable, Sized):
     one scan, one directory listing — and let it go afterwards. Plans it
     handed out stay alive on their own; a cursor holds its own reference.
 
+    Lookup is a linear scan of the hashes, which is right for the shape this
+    is for: a run of files carrying a handful of distinct schemas between
+    them. A workload with hundreds of *different* schemas in one cache would
+    want an index instead, and does not have one.
+
     ```mojo
     var cache = PlanCache()
     for k in range(len(paths)):
