@@ -460,6 +460,113 @@ def test_a_truncated_block_is_an_error() raises:
             pass
 
 
+# ── unions whose branches are not the same shape ───────────────────────────
+
+
+comptime OPTIONAL_RECORD: StaticString = (
+    '{"type":"record","name":"Row","fields":['
+    '{"name":"id","type":"long"},'
+    '{"name":"who","type":["null",{"type":"record","name":"Who","fields":['
+    '{"name":"name","type":"string"},{"name":"age","type":"int"}]}]},'
+    '{"name":"xs","type":{"type":"array","items":'
+    '["null",{"type":"record","name":"Pt","fields":['
+    '{"name":"x","type":"long"},{"name":"y","type":"long"}]}]}}]}'
+)
+
+
+def _optional_record_file(n: Int) raises -> List[UInt8]:
+    """Rows where an optional record is sometimes there and sometimes not —
+    including inside an array, where a missing one must not shift the rest."""
+    var w = DataFileWriter(parse_schema(String(OPTIONAL_RECORD)), "null")
+    for i in range(n):
+        var b = RecordBuilder()
+        b.add("id", Value.long(Int64(i)))
+        if i % 2 == 0:
+            b.add("who", Value.union(0, Value.null()))
+        else:
+            var who = RecordBuilder()
+            who.add("name", Value.string(String("n", i)))
+            who.add("age", Value.int(Int64(i % 90)))
+            b.add("who", Value.union(1, who^.build()))
+        var xs = ArrayBuilder()
+        for k in range(3):
+            if (i + k) % 3 == 0:
+                xs.add(Value.union(0, Value.null()))
+            else:
+                var pt = RecordBuilder()
+                pt.add("x", Value.long(Int64(i * 10 + k)))
+                pt.add("y", Value.long(Int64(k)))
+                xs.add(Value.union(1, pt^.build()))
+        b.add("xs", xs^.build())
+        w.append(b^.build())
+    return w.bytes()
+
+
+def test_an_optional_record_is_not_confused_with_null() raises:
+    var c = RecordCursor.from_bytes(Span(_optional_record_file(50)))
+    var s_id = c.plan.slot_of("id")
+    var s_who = c.plan.slot_of("who")
+    var s_name = c.plan.slot_of("who.name")
+    var i = 0
+    while c.next():
+        assert_equal(c.get_long(s_id), Int64(i))
+        # The record's own slot answers "is it there", which the null branch
+        # would otherwise have owned outright.
+        assert_equal(c.is_null(s_who), i % 2 == 0)
+        assert_equal(c.is_null(s_name), i % 2 == 0)
+        if i % 2 == 1:
+            assert_equal(String(c.get_str(s_name)), String("n", i))
+        i += 1
+    assert_equal(i, 50)
+
+
+def test_a_null_element_does_not_shift_the_ones_after_it() raises:
+    """The reason unions null-fill their other branches' slots: inside an
+    array, a branch that writes nothing would misalign every later element.
+    """
+    var c = RecordCursor.from_bytes(Span(_optional_record_file(50)))
+    var s_xs = c.plan.slot_of("xs")
+    var s_pt = c.plan.slot_of("xs.element")
+    var s_x = c.plan.slot_of("xs.element.x")
+    var s_y = c.plan.slot_of("xs.element.y")
+    var i = 0
+    while c.next():
+        assert_equal(c.array_len(s_xs), 3)
+        assert_equal(c.count(s_x), 3)
+        assert_equal(c.count(s_pt), 3)
+        for k in range(3):
+            var absent = (i + k) % 3 == 0
+            assert_equal(c.is_null(s_pt, k), absent)
+            assert_equal(c.is_null(s_x, k), absent)
+            if not absent:
+                assert_equal(c.get_long(s_x, k), Int64(i * 10 + k))
+                assert_equal(c.get_long(s_y, k), Int64(k))
+        i += 1
+    assert_equal(i, 50)
+
+
+def test_the_value_path_agrees_about_the_optional_records() raises:
+    var data = _optional_record_file(30)
+    var v = DataFileReader.from_bytes(Span(data))
+    var c = RecordCursor.from_bytes(Span(data))
+    var s_who = c.plan.slot_of("who")
+    var s_age = c.plan.slot_of("who.age")
+    var s_x = c.plan.slot_of("xs.element.x")
+    while c.next():
+        var rec = v.next()
+        var who = rec.field("who")
+        assert_equal(c.is_null(s_who), who.is_null())
+        if not who.is_null():
+            assert_equal(c.get_long(s_age), who.field("age").as_long())
+        var xs = rec.field("xs")
+        for k in range(len(xs)):
+            var e = xs.at(k).unwrap()
+            assert_equal(c.is_null(s_x, k), e.is_null())
+            if not e.is_null():
+                assert_equal(c.get_long(s_x, k), e.field("x").as_long())
+    assert_false(v.has_next())
+
+
 # ── bringing your own codec ────────────────────────────────────────────────
 
 

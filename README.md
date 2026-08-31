@@ -165,7 +165,18 @@ are valid until the next `next()`; `get_string` / `get_bytes_copy` when the
 value has to live longer.
 
 **A union** `["null", T]` is one slot — `is_null(slot)` answers it. Any other
-union also gets a `path.$branch` slot, read with `union_branch`.
+union also gets a `path.$branch` slot, read with `union_branch`. A record is
+given a slot only where it can be absent, which is as a union branch: for
+`["null", record]` the record's own path answers `is_null`, and a record
+reached from a field is always there and costs nothing. Whichever branch the
+data takes, the union also writes a null into the slots its *other* branches
+own — without that, a `["null", record]` inside an array would leave the
+element after a missing one reading the wrong value.
+
+**The core suite is the oracle.** `tests/test_cursor.mojo` decodes the same
+files both ways and compares field for field, including files where an
+optional record is present in some rows and absent in others, and absent in
+the middle of an array.
 
 **Resolution** is done at plan-build time, so it costs nothing per record:
 
@@ -345,9 +356,9 @@ double, an optional long):
 
 | reader | `null` | `deflate` |
 |---|---|---|
-| `Value` | 82 MB/s, 1.73 M rows/s | 76 MB/s, 1.62 M rows/s |
-| **`RecordCursor`** | **932 MB/s, 19.7 M rows/s** | **510 MB/s, 10.8 M rows/s** |
-| `RecordCursor`, 1 of 5 fields selected | 1319 MB/s, 27.8 M rows/s | 614 MB/s, 13.0 M rows/s |
+| `Value` | 82 MB/s, 1.74 M rows/s | 78 MB/s, 1.65 M rows/s |
+| **`RecordCursor`** | **912 MB/s, 19.2 M rows/s** | **502 MB/s, 10.6 M rows/s** |
+| `RecordCursor`, 1 of 5 fields selected | 1302 MB/s, 27.5 M rows/s | 602 MB/s, 12.7 M rows/s |
 | fastavro | 83 MB/s, 1.74 M rows/s | 81 MB/s, 1.71 M rows/s |
 
 100 000 real Iceberg `manifest_entry` records — the fixture's own schema and
@@ -355,13 +366,13 @@ entries, nested `data_file`, four metric maps, partition struct and all:
 
 | reader | `null` | `deflate` |
 |---|---|---|
-| `Value` | 43 MB/s, 127 k rows/s | 42 MB/s, 124 k rows/s |
-| **`RecordCursor`** | **477 MB/s, 1.41 M rows/s** | **386 MB/s, 1.14 M rows/s** |
-| `RecordCursor`, 3 fields selected | 643 MB/s, 1.89 M rows/s | 500 MB/s, 1.47 M rows/s |
+| `Value` | 42 MB/s, 126 k rows/s | 41 MB/s, 122 k rows/s |
+| **`RecordCursor`** | **444 MB/s, 1.31 M rows/s** | **368 MB/s, 1.08 M rows/s** |
+| `RecordCursor`, 3 fields selected | 612 MB/s, 1.80 M rows/s | 471 MB/s, 1.39 M rows/s |
 | fastavro | 35 MB/s, 103 k rows/s | 35 MB/s, 103 k rows/s |
 
-So the cursor is **11x** the `Value` path on either shape, 15x with a
-selection, and 11-14x fastavro. The `Value` path itself is already at
+So the cursor is **10-11x** the `Value` path on either shape, 14-16x with a
+selection, and 11-13x fastavro. The `Value` path itself is already at
 fastavro's speed — which is the honest reason the cursor exists. There was no
 more room inside a dynamically typed datum; the win had to come from not
 building one.
@@ -406,7 +417,7 @@ pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 41 tests, the cursor suite 16, the codec suite 8. All run on
+The core suite is 41 tests, the cursor suite 19, the codec suite 8. All run on
 stable 1.0.0 and on nightly, on `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same

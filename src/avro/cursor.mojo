@@ -130,6 +130,9 @@ struct PlanOp(Copyable, Movable):
     var kid0: Int
     """First child: an index into `DecodePlan.kids`."""
     var nkid: Int
+    var fill: Int
+    """`OP_UNION` only: where this union's per-branch fill lists start in
+    `DecodePlan.fill_spans`, or -1 when every branch writes the same slots."""
 
 
 @fieldwise_init
@@ -203,6 +206,10 @@ struct DecodePlan(Copyable, Movable):
     var const_strings: List[String]
     """Text of a `string`/`bytes` resolution default, by slot."""
     var messages: List[String]
+    var fills: List[Int]
+    """Slot numbers a union branch has to null out — see `_fill_for`."""
+    var fill_spans: List[Int]
+    """(start, count) into `fills`, two entries per union branch."""
     var root: Int
     var by_path: Dict[String, Int]
 
@@ -215,6 +222,8 @@ struct DecodePlan(Copyable, Movable):
         self.consts = List[SlotVal]()
         self.const_strings = List[String]()
         self.messages = List[String]()
+        self.fills = List[Int]()
+        self.fill_spans = List[Int]()
         self.root = -1
         self.by_path = Dict[String, Int]()
 
@@ -227,6 +236,8 @@ struct DecodePlan(Copyable, Movable):
         self.consts = copy.consts.copy()
         self.const_strings = copy.const_strings.copy()
         self.messages = copy.messages.copy()
+        self.fills = copy.fills.copy()
+        self.fill_spans = copy.fill_spans.copy()
         self.root = copy.root
         self.by_path = copy.by_path.copy()
 
@@ -239,6 +250,8 @@ struct DecodePlan(Copyable, Movable):
         self.consts = move.consts^
         self.const_strings = move.const_strings^
         self.messages = move.messages^
+        self.fills = move.fills^
+        self.fill_spans = move.fill_spans^
         self.root = move.root
         self.by_path = move.by_path^
 
@@ -391,6 +404,67 @@ struct _Builder(Copyable, Movable):
         self.plan.kids.extend(kids.copy())
         return at
 
+    def branch_slots(self, from_op: Int, to_op: Int) -> List[Int]:
+        """Every slot the ops in `[from_op, to_op)` can write.
+
+        Ops are appended in post-order, so a subtree is a contiguous range —
+        which is what makes this a scan rather than another walk.
+        """
+        var out = List[Int]()
+        for k in range(from_op, to_op):
+            ref op = self.plan.ops[k]
+            if op.slot >= 0:
+                out.append(op.slot)
+            if (op.op == OP_MAP or op.op == OP_UNION) and op.aux >= 0:
+                out.append(op.aux)
+        return out^
+
+    def fills_for(mut self, ranges: List[Int]) raises -> Int:
+        """Plan the null-fills for one union, given each branch's op range.
+
+        Only one branch of a union is on the wire, so the slots belonging to
+        the others would silently keep no value at all. At depth 0 that reads
+        correctly — no value is null — but inside an array it *misaligns*:
+        element 3's value would answer for element 1. So each branch also
+        writes a null into every slot the union's other branches own, which
+        keeps one value per slot per occurrence no matter which way the data
+        went. A `["null", T]` optional needs none of this, because both
+        branches write the same slot; the list comes out empty and the union
+        carries -1.
+        """
+        var nb = len(ranges) // 2
+        var per = List[List[Int]]()
+        var every = List[Int]()
+        for b in range(nb):
+            var mine = self.branch_slots(ranges[2 * b], ranges[2 * b + 1])
+            for k in range(len(mine)):
+                if not _has_slot(every, mine[k]):
+                    every.append(mine[k])
+            per.append(mine^)
+        var any_fill = False
+        var spans = List[Int]()
+        var flat = List[Int]()
+        for b in range(nb):
+            var start = len(flat)
+            for k in range(len(every)):
+                if not _has_slot(per[b], every[k]):
+                    flat.append(every[k])
+                    any_fill = True
+            spans.append(start)
+            spans.append(len(flat) - start)
+        if not any_fill:
+            return -1
+        var at = len(self.plan.fill_spans)
+        for k in range(len(spans)):
+            self.plan.fill_spans.append(spans[k] + 0)
+        var base = len(self.plan.fills)
+        for k in range(len(flat)):
+            self.plan.fills.append(flat[k])
+        # `spans` indexed into `flat`; shift them onto the shared table.
+        for b in range(nb):
+            self.plan.fill_spans[at + 2 * b] += base
+        return at
+
     def add_symbols(mut self, syms: List[String]) -> Int:
         self.plan.symbols.append(syms.copy())
         return len(self.plan.symbols) - 1
@@ -398,12 +472,29 @@ struct _Builder(Copyable, Movable):
     # ── compiling a plain schema ───────────────────────────────────────────
 
     def compile(
-        mut self, schema: Schema, i: Int, path: String, depth: Int, keep: Bool
+        mut self,
+        schema: Schema,
+        i: Int,
+        path: String,
+        depth: Int,
+        keep: Bool,
+        optional: Bool = False,
     ) raises -> Int:
+        """`optional` marks a union branch — the one place a record can be
+        absent, and so the only place a record needs a slot of its own."""
         var kind = schema.kind(i)
         var want = keep and self.selected(path)
 
         if kind == RECORD:
+            # A record that is a union branch gets a slot of its own,
+            # holding its field count, so `["null", record]` can be told
+            # apart from a record that is there — otherwise the null branch
+            # would own the path and every present record would read as null.
+            # A record reached from a field is always there, and pays
+            # nothing.
+            var s = self.slot(path, RECORD, depth, -1) if (
+                want and optional
+            ) else -1
             var kids = List[Int]()
             ref node = schema.nodes[i]
             for f in range(len(node.fields)):
@@ -418,7 +509,7 @@ struct _Builder(Copyable, Movable):
                     )
                 )
             var at = self.push_kids(kids)
-            return self.push(PlanOp(OP_RECORD, -1, 0, at, len(kids)))
+            return self.push(PlanOp(OP_RECORD, s, len(kids), at, len(kids), -1))
 
         if kind == UNION:
             var nb = schema.num_branches(i)
@@ -426,12 +517,19 @@ struct _Builder(Copyable, Movable):
             if want and _needs_branch_slot(schema, i):
                 bslot = self.slot(String(path, ".$branch"), INT, depth, -1)
             var kids = List[Int]()
+            var ranges = List[Int]()
             for b in range(nb):
+                var from_op = len(self.plan.ops)
                 kids.append(
-                    self.compile(schema, schema.branch(i, b), path, depth, keep)
+                    self.compile(
+                        schema, schema.branch(i, b), path, depth, keep, True
+                    )
                 )
+                ranges.append(from_op)
+                ranges.append(len(self.plan.ops))
             var at = self.push_kids(kids)
-            return self.push(PlanOp(OP_UNION, -1, bslot, at, len(kids)))
+            var fill = self.fills_for(ranges)
+            return self.push(PlanOp(OP_UNION, -1, bslot, at, len(kids), fill))
 
         if kind == ARRAY:
             var s = self.slot(path, ARRAY, depth, -1) if want else -1
@@ -443,7 +541,7 @@ struct _Builder(Copyable, Movable):
                 keep,
             )
             var at = self.push_kids([kid])
-            return self.push(PlanOp(OP_ARRAY, s, 0, at, 1))
+            return self.push(PlanOp(OP_ARRAY, s, 0, at, 1, -1))
 
         if kind == MAP:
             var s = self.slot(path, MAP, depth, -1) if want else -1
@@ -458,7 +556,7 @@ struct _Builder(Copyable, Movable):
                 keep,
             )
             var at = self.push_kids([kid])
-            return self.push(PlanOp(OP_MAP, s, ks, at, 1))
+            return self.push(PlanOp(OP_MAP, s, ks, at, 1, -1))
 
         return self.leaf(schema, i, path, depth, want)
 
@@ -472,21 +570,21 @@ struct _Builder(Copyable, Movable):
             syms = self.add_symbols(schema.nodes[i].symbols)
         var s = self.slot(path, kind, depth, syms) if want else -1
         if kind == NULL:
-            return self.push(PlanOp(OP_NULL, s, 0, 0, 0))
+            return self.push(PlanOp(OP_NULL, s, 0, 0, 0, -1))
         if kind == BOOLEAN:
-            return self.push(PlanOp(OP_BOOL, s, 0, 0, 0))
+            return self.push(PlanOp(OP_BOOL, s, 0, 0, 0, -1))
         if kind == INT or kind == LONG:
-            return self.push(PlanOp(OP_VARINT, s, 0, 0, 0))
+            return self.push(PlanOp(OP_VARINT, s, 0, 0, 0, -1))
         if kind == FLOAT:
-            return self.push(PlanOp(OP_FLOAT, s, 0, 0, 0))
+            return self.push(PlanOp(OP_FLOAT, s, 0, 0, 0, -1))
         if kind == DOUBLE:
-            return self.push(PlanOp(OP_DOUBLE, s, 0, 0, 0))
+            return self.push(PlanOp(OP_DOUBLE, s, 0, 0, 0, -1))
         if kind == BYTES or kind == STRING:
-            return self.push(PlanOp(OP_BYTES, s, 0, 0, 0))
+            return self.push(PlanOp(OP_BYTES, s, 0, 0, 0, -1))
         if kind == FIXED:
-            return self.push(PlanOp(OP_FIXED, s, schema.size(i), 0, 0))
+            return self.push(PlanOp(OP_FIXED, s, schema.size(i), 0, 0, -1))
         if kind == ENUM:
-            return self.push(PlanOp(OP_ENUM, s, -1, 0, 0))
+            return self.push(PlanOp(OP_ENUM, s, -1, 0, 0, -1))
         raise Error(
             String("avro.DecodePlan: cannot compile kind ", kind_name(kind))
         )
@@ -500,13 +598,14 @@ struct _Builder(Copyable, Movable):
         path: String,
         depth: Int,
         keep: Bool,
+        optional: Bool = False,
     ) raises -> Int:
         ref n = rr.plan[p]
         var want = keep and self.selected(path)
 
         if n.action == RA_DIRECT or n.action == RA_SKIP:
             var k = keep if n.action == RA_DIRECT else False
-            return self.compile(rr.writer, n.w, path, depth, k)
+            return self.compile(rr.writer, n.w, path, depth, k, optional)
 
         if n.action == RA_PROMOTE:
             var wk = rr.writer.kind(n.w)
@@ -514,14 +613,14 @@ struct _Builder(Copyable, Movable):
             var s = self.slot(path, rk, depth, -1) if want else -1
             if wk == INT or wk == LONG:
                 if rk == FLOAT or rk == DOUBLE:
-                    return self.push(PlanOp(OP_VARINT_D, s, 0, 0, 0))
-                return self.push(PlanOp(OP_VARINT, s, 0, 0, 0))
+                    return self.push(PlanOp(OP_VARINT_D, s, 0, 0, 0, -1))
+                return self.push(PlanOp(OP_VARINT, s, 0, 0, 0, -1))
             if wk == FLOAT:
-                return self.push(PlanOp(OP_FLOAT, s, 0, 0, 0))
+                return self.push(PlanOp(OP_FLOAT, s, 0, 0, 0, -1))
             if wk == DOUBLE:
-                return self.push(PlanOp(OP_DOUBLE, s, 0, 0, 0))
+                return self.push(PlanOp(OP_DOUBLE, s, 0, 0, 0, -1))
             if wk == STRING or wk == BYTES:
-                return self.push(PlanOp(OP_BYTES, s, 0, 0, 0))
+                return self.push(PlanOp(OP_BYTES, s, 0, 0, 0, -1))
             raise Error(
                 String("avro.DecodePlan: cannot promote ", kind_name(wk))
             )
@@ -539,7 +638,7 @@ struct _Builder(Copyable, Movable):
                 m.append(mapped)
             self.plan.enum_maps.append(m^)
             return self.push(
-                PlanOp(OP_ENUM, s, len(self.plan.enum_maps) - 1, 0, 0)
+                PlanOp(OP_ENUM, s, len(self.plan.enum_maps) - 1, 0, 0, -1)
             )
 
         if n.action == RA_UNION_WRITER:
@@ -547,17 +646,26 @@ struct _Builder(Copyable, Movable):
             if want and _needs_branch_slot(rr.writer, n.w):
                 bslot = self.slot(String(path, ".$branch"), INT, depth, -1)
             var kids = List[Int]()
+            var ranges = List[Int]()
             for b in range(len(n.kids)):
+                var from_op = len(self.plan.ops)
                 kids.append(
-                    self.compile_resolved(rr, n.kids[b], path, depth, keep)
+                    self.compile_resolved(
+                        rr, n.kids[b], path, depth, keep, True
+                    )
                 )
+                ranges.append(from_op)
+                ranges.append(len(self.plan.ops))
             var at = self.push_kids(kids)
-            return self.push(PlanOp(OP_UNION, -1, bslot, at, len(kids)))
+            var fill = self.fills_for(ranges)
+            return self.push(PlanOp(OP_UNION, -1, bslot, at, len(kids), fill))
 
         if n.action == RA_UNION_READER:
             # The reader's union wrapper is invisible in a flat cursor: the
             # branch is fixed at plan time, so only its payload is decoded.
-            return self.compile_resolved(rr, n.kids[0], path, depth, keep)
+            return self.compile_resolved(
+                rr, n.kids[0], path, depth, keep, optional
+            )
 
         if n.action == RA_ARRAY:
             var s = self.slot(path, ARRAY, depth, -1) if want else -1
@@ -565,7 +673,7 @@ struct _Builder(Copyable, Movable):
                 rr, n.kids[0], _child_path(path, "element"), depth + 1, keep
             )
             var at = self.push_kids([kid])
-            return self.push(PlanOp(OP_ARRAY, s, 0, at, 1))
+            return self.push(PlanOp(OP_ARRAY, s, 0, at, 1, -1))
 
         if n.action == RA_MAP:
             var s = self.slot(path, MAP, depth, -1) if want else -1
@@ -576,9 +684,12 @@ struct _Builder(Copyable, Movable):
                 rr, n.kids[0], _child_path(path, "value"), depth + 1, keep
             )
             var at = self.push_kids([kid])
-            return self.push(PlanOp(OP_MAP, s, ks, at, 1))
+            return self.push(PlanOp(OP_MAP, s, ks, at, 1, -1))
 
         if n.action == RA_RECORD:
+            var s = self.slot(path, RECORD, depth, -1) if (
+                want and optional
+            ) else -1
             var kids = List[Int]()
             for wf in range(len(n.field_plan)):
                 var rf = n.field_slot[wf]
@@ -614,12 +725,12 @@ struct _Builder(Copyable, Movable):
                     )
                 )
             var at = self.push_kids(kids)
-            return self.push(PlanOp(OP_RECORD, -1, 0, at, len(kids)))
+            return self.push(PlanOp(OP_RECORD, s, len(kids), at, len(kids), -1))
 
         if n.action == RA_ERROR:
             self.plan.messages.append(n.message)
             return self.push(
-                PlanOp(OP_ERROR, -1, len(self.plan.messages) - 1, 0, 0)
+                PlanOp(OP_ERROR, -1, len(self.plan.messages) - 1, 0, 0, -1)
             )
 
         raise Error("avro.DecodePlan: unreachable resolution action")
@@ -663,7 +774,16 @@ struct _Builder(Copyable, Movable):
             self.plan.const_strings.append(text)
             sv = SlotVal(Int64(len(self.plan.const_strings) - 1), -1, 0, False)
         self.plan.consts.append(sv)
-        return self.push(PlanOp(OP_CONST, s, len(self.plan.consts) - 1, 0, 0))
+        return self.push(
+            PlanOp(OP_CONST, s, len(self.plan.consts) - 1, 0, 0, -1)
+        )
+
+
+def _has_slot(haystack: List[Int], needle: Int) -> Bool:
+    for k in range(len(haystack)):
+        if haystack[k] == needle:
+            return True
+    return False
 
 
 def _needs_branch_slot(schema: Schema, i: Int) -> Bool:
@@ -891,6 +1011,8 @@ def _run(
     var slot = op.slot
 
     if code == OP_RECORD:
+        if slot >= 0:
+            _put(vals, counts, slot, SlotVal.of_long(Int64(op.aux)))
         for k in range(op.nkid):
             var ki = plan.kids[op.kid0 + k]
             if not _leaf(plan, plan.ops[ki], blk, pos, vals, counts):
@@ -905,6 +1027,11 @@ def _run(
             )
         if op.aux >= 0:
             _put(vals, counts, op.aux, SlotVal.of_long(Int64(b)))
+        if op.fill >= 0:
+            var start = plan.fill_spans[op.fill + 2 * b]
+            var n = plan.fill_spans[op.fill + 2 * b + 1]
+            for k in range(start, start + n):
+                _put(vals, counts, plan.fills[k], SlotVal.none())
         var ki = plan.kids[op.kid0 + b]
         if not _leaf(plan, plan.ops[ki], blk, pos, vals, counts):
             _run(plan, ki, blk, pos, vals, counts)
