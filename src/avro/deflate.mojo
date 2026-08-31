@@ -62,7 +62,24 @@ struct _Tables(Copyable, Movable):
         self.clen_order = _ints(_CLEN_ORDER_S)
 
 
-# ── canonical Huffman decoding (the "puff" scheme) ─────────────────────────
+# ── canonical Huffman decoding ─────────────────────────────────────────────
+
+comptime _FAST_BITS: Int = 9
+"""Width of the direct-lookup table. Nine bits covers the overwhelming
+majority of real DEFLATE codes — the literals a compressor actually emits
+often — while keeping the table at 512 entries, small enough to rebuild per
+block and to stay in L1."""
+comptime _FAST_SIZE: Int = 1 << _FAST_BITS
+
+
+def _reverse_bits(value: Int, count: Int) -> Int:
+    """DEFLATE writes Huffman codes most-significant bit first but reads the
+    stream least-significant bit first, so a table indexed by the next bits
+    of the stream wants the code reversed."""
+    var v = 0
+    for k in range(count):
+        v |= ((value >> (count - 1 - k)) & 1) << k
+    return v
 
 
 struct _Huffman(Copyable, Movable, Defaultable):
@@ -70,10 +87,15 @@ struct _Huffman(Copyable, Movable, Defaultable):
     """counts[n] = how many symbols have a code of n bits (n = 0..15)."""
     var symbols: List[Int]
     """Symbols ordered by code length, then by symbol value."""
+    var fast: List[Int32]
+    """`(length << 16) | symbol` for every code of at most `_FAST_BITS` bits,
+    indexed by the next `_FAST_BITS` bits of the stream; -1 where the code is
+    longer and the bit-at-a-time walk has to finish the job."""
 
     def __init__(out self):
         self.counts = List[Int]()
         self.symbols = List[Int]()
+        self.fast = List[Int32]()
 
     def __init__(out self, lengths: List[Int]) raises:
         self.counts = List[Int](length=16, fill=0)
@@ -82,6 +104,7 @@ struct _Huffman(Copyable, Movable, Defaultable):
         if self.counts[0] == len(lengths):
             # An all-zero table is legal (an unused distance tree).
             self.symbols = List[Int]()
+            self.fast = List[Int32]()
             return
         var left = 1
         for n in range(1, 16):
@@ -97,12 +120,31 @@ struct _Huffman(Copyable, Movable, Defaultable):
             if lengths[i]:
                 self.symbols[offs[lengths[i]]] = i
                 offs[lengths[i]] += 1
+        self.fast = List[Int32](length=_FAST_SIZE, fill=-1)
+        var code = 0
+        var idx = 0
+        for n in range(1, 16):
+            for _k in range(self.counts[n]):
+                var sym = self.symbols[idx]
+                idx += 1
+                if n <= _FAST_BITS:
+                    var entry = Int32((n << 16) | sym)
+                    var step = 1 << n
+                    var at = _reverse_bits(code, n)
+                    while at < _FAST_SIZE:
+                        self.fast[at] = entry
+                        at += step
+                code += 1
+            code <<= 1
 
 
 struct _BitReader[origin: ImmOrigin](Copyable, Movable):
+    """A 64-bit bit buffer, so one refill serves several symbols."""
+
     var data: Span[UInt8, Self.origin]
     var pos: Int
-    var bitbuf: UInt32
+    """Offset of the next byte *not yet in* `bitbuf`."""
+    var bitbuf: UInt64
     var bitcnt: Int
 
     def __init__(out self, data: Span[UInt8, Self.origin]):
@@ -111,23 +153,69 @@ struct _BitReader[origin: ImmOrigin](Copyable, Movable):
         self.bitbuf = 0
         self.bitcnt = 0
 
-    def bits(mut self, need: Int) raises -> Int:
-        while self.bitcnt < need:
-            if self.pos >= len(self.data):
-                raise Error("avro.deflate: truncated DEFLATE stream")
-            self.bitbuf |= UInt32(self.data[self.pos]) << UInt32(self.bitcnt)
+    @always_inline
+    def refill(mut self):
+        """Top the buffer up to at least 57 bits, if the stream has them.
+
+        Away from the end of the stream this is one eight-byte read and two
+        integer ops — the per-byte loop below only runs for the last few
+        bytes of the block."""
+        if self.pos + 8 <= len(self.data):
+            # One unaligned little-endian read of the next eight bytes.
+            # avro.mojo targets little-endian platforms only (the Avro binary
+            # encoding is little-endian throughout, and so is every platform
+            # this builds for).
+            var chunk = (
+                self.data.unsafe_ptr()
+                .unsafe_offset(self.pos)
+                .unsafe_bitcast[UInt64]()
+                .unsafe_load[alignment=1]()
+            )
+            self.bitbuf |= chunk << UInt64(self.bitcnt)
+            self.pos += (63 - self.bitcnt) >> 3
+            self.bitcnt |= 56
+            return
+        while self.bitcnt <= 56 and self.pos < len(self.data):
+            self.bitbuf |= UInt64(self.data[self.pos]) << UInt64(self.bitcnt)
             self.pos += 1
             self.bitcnt += 8
-        var v = Int(self.bitbuf & ((UInt32(1) << UInt32(need)) - 1))
-        self.bitbuf >>= UInt32(need)
+
+    @always_inline
+    def bits(mut self, need: Int) raises -> Int:
+        if self.bitcnt < need:
+            self.refill()
+            if self.bitcnt < need:
+                raise Error("avro.deflate: truncated DEFLATE stream")
+        var v = Int(self.bitbuf & ((UInt64(1) << UInt64(need)) - 1))
+        self.bitbuf >>= UInt64(need)
         self.bitcnt -= need
         return v
 
     def align(mut self):
+        """Drop to the next byte boundary, rewinding the bytes the buffer
+        read ahead — a stored block is copied from `data` directly."""
+        self.pos -= self.bitcnt // 8
         self.bitbuf = 0
         self.bitcnt = 0
 
+    @always_inline
     def decode(mut self, h: _Huffman) raises -> Int:
+        """One Huffman symbol: a table hit, or the bit-at-a-time walk."""
+        if self.bitcnt < 15:
+            self.refill()
+        var e = Int(h.fast[Int(self.bitbuf & UInt64(_FAST_SIZE - 1))])
+        if e >= 0:
+            var n = e >> 16
+            if n > self.bitcnt:
+                raise Error("avro.deflate: truncated DEFLATE stream")
+            self.bitbuf >>= UInt64(n)
+            self.bitcnt -= n
+            return e & 0xFFFF
+        return self.decode_long(h)
+
+    def decode_long(mut self, h: _Huffman) raises -> Int:
+        """Codes longer than `_FAST_BITS` — rare, so walked one bit at a
+        time rather than paid for with a second-level table."""
         var code = 0
         var first = 0
         var index = 0
@@ -151,9 +239,72 @@ def _fixed_literal_lengths() -> List[Int]:
     return l^
 
 
+struct _Out(Copyable, Movable, Defaultable, Sized):
+    """The inflate output window.
+
+    A `List[UInt8]` grown with `append` costs a capacity check per literal
+    byte and a zero-fill per match; this keeps the buffer valid to its full
+    capacity and tracks the write position itself, so the inner loops are a
+    store through a pointer and nothing else.
+    """
+
+    var buf: List[UInt8]
+    var n: Int
+
+    def __init__(out self):
+        self.buf = List[UInt8]()
+        self.n = 0
+
+    def __init__(out self, capacity: Int):
+        self.buf = List[UInt8](length=capacity, fill=0)
+        self.n = 0
+
+    def __len__(self) -> Int:
+        return self.n
+
+    @always_inline
+    def room(mut self, extra: Int):
+        """Make sure `extra` more bytes can be written without a check."""
+        if self.n + extra <= len(self.buf):
+            return
+        var want = len(self.buf) * 2
+        if want < self.n + extra:
+            want = self.n + extra
+        if want < 4096:
+            want = 4096
+        self.buf.resize(want, 0)
+
+    @always_inline
+    def push(mut self, b: UInt8):
+        self.buf[self.n] = b
+        self.n += 1
+
+    def extend(mut self, src: Span[UInt8, _]):
+        self.room(len(src))
+        for k in range(len(src)):
+            self.buf[self.n + k] = src[k]
+        self.n += len(src)
+
+    @always_inline
+    def copy_match(mut self, distance: Int, length: Int):
+        """LZ77 back-reference. Forward and byte at a time, because an
+        overlapping copy (`distance < length`) is how DEFLATE spells a run."""
+        var at = self.n
+        var start = at - distance
+        var p = self.buf.unsafe_ptr()
+        for k in range(length):
+            p[unsafe_offset=at + k] = p[unsafe_offset=start + k]
+        self.n = at + length
+
+    def finish(deinit self) -> List[UInt8]:
+        var buf = self.buf^
+        buf.resize(self.n, 0)
+        return buf^
+
+
 def inflate(data: Span[UInt8, _]) raises -> List[UInt8]:
     """Decompress a raw DEFLATE stream."""
-    var out = List[UInt8]()
+    var out = _Out(len(data) * 3 + 64)
     var t = _Tables()
     var br = _BitReader(data)
     var fixed_lit = _Huffman(_fixed_literal_lengths())
@@ -217,7 +368,7 @@ def inflate(data: Span[UInt8, _]) raises -> List[UInt8]:
             raise Error("avro.deflate: reserved block type 3")
         if final:
             break
-    return out^
+    return out^.finish()
 
 
 def _inflate_block(
@@ -225,12 +376,15 @@ def _inflate_block(
     lit: _Huffman,
     dist: _Huffman,
     t: _Tables,
-    mut out: List[UInt8],
+    mut out: _Out,
 ) raises:
     while True:
+        # 258 is the longest match DEFLATE can emit, so one check per symbol
+        # covers whatever this iteration writes.
+        out.room(258)
         var sym = br.decode(lit)
         if sym < 256:
-            out.append(UInt8(sym))
+            out.push(UInt8(sym))
         elif sym == 256:
             return
         else:
@@ -244,10 +398,7 @@ def _inflate_block(
             var d = t.dist_base[dc] + br.bits(t.dist_extra[dc])
             if d > len(out):
                 raise Error("avro.deflate: distance runs before the output start")
-            var start = len(out) - d
-            # Overlapping copies are legal and must be byte-at-a-time.
-            for k in range(length):
-                out.append(out[start + k])
+            out.copy_match(d, length)
 
 
 # ── compression ────────────────────────────────────────────────────────────
