@@ -39,6 +39,14 @@ while c.next():
     print(c.get_str(path), c.get_long(snap))
 ```
 
+## Install
+
+```sh
+pixi shelf add avro-mojo
+```
+
+That resolves the tin from [mojoshelf](https://mojoshelf.org) and adds it — along with the tins it depends on — as **pixi git source dependencies**. magmalake tins are not published to a conda channel, so `pixi add avro-mojo` will not find them.
+
 ## Why
 
 Apache Iceberg's **manifest lists** and **manifests** are Avro Object
