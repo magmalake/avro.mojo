@@ -1,0 +1,20 @@
+# Benchmarks, and the history behind
+# https://magmalake.github.io/avro.mojo/benchmarks/
+#
+# The pipeline lives in magmalake/.github so every tin shares one copy: it runs
+# `pixi run -e bench bench`, folds the report into this repo's gh-pages history,
+# and republishes the dashboard. Pull requests run the benchmarks and publish
+# nothing.
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  bench:
+    uses: magmalake/.github/.github/workflows/bench-report.yml@main
+    permissions:
+      contents: write
