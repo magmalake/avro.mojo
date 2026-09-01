@@ -21,10 +21,6 @@ crosscheck = { cmd = "bash tools/crosscheck.sh" }
 # The schema-compiled cursor: its own suite, cross-checked against the Value
 # path on the same files.
 test-cursor = { cmd = "mkdir -p build && mojo build tests/test_cursor.mojo -I src -I tests -o build/avro-cursor-test && ./build/avro-cursor-test" }
-bench = { cmd = "mkdir -p build && mojo build bench/bench_avro.mojo -I src -o build/avro-bench && ./build/avro-bench" }
-# The honesty reference: fastavro reading the very files `bench` wrote.
-# Needs `uv` on PATH (it builds a throwaway venv under build/).
-bench-fastavro = { cmd = "bash tools/bench_fastavro.sh", depends-on = ["bench"] }
 
 # ── pixi-build: consumable as a pixi source dependency ──────────────────────
 # Conda package name is avro-mojo; the Mojo import stays `from avro import …`.
@@ -70,8 +66,24 @@ mojo-compiler = "==1.0.0"
 snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo" }
 zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo" }
 
+# Benchmarks run through the shared harness (magmalake/bench.mojo) and get
+# their own feature, so the tin stays out of the environments that run tests.
+# -I $CONDA_PREFIX/lib/mojo is what puts its precompiled package on the import
+# path. Stable only: a precompiled Mojo package is stamped with the compiler
+# version that built it and refused by any other, and tins build with 1.0.0.
+[feature.bench.dependencies]
+bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "3334bd5b5dd4de27c93db37c926e06364c4fbe72" }
+
+[feature.bench.tasks]
+bench = "mojo run -I src -I $CONDA_PREFIX/lib/mojo bench/bench_avro.mojo"
+# The honesty reference: fastavro reading the very files `bench` wrote. It
+# lives here because it depends on `bench`, which is only in this feature.
+# Needs `uv` on PATH (it builds a throwaway venv under build/).
+bench-fastavro = { cmd = "bash tools/bench_fastavro.sh", depends-on = ["bench"] }
+
 [environments]
 default = ["nightly"]
 stable = ["stable"]
 codecs = ["nightly", "codecs"]
 codecs-stable = ["stable", "codecs"]
+bench = ["stable", "bench"]
