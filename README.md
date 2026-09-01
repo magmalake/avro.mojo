@@ -394,55 +394,67 @@ all 4 codecs round-trip through fastavro
 
 ## Performance
 
-Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0. MB/s is always against
-the **uncompressed** datum stream, so the `null` and `deflate` rows compare.
+Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0, through
+[bench.mojo](https://github.com/magmalake/bench.mojo) — mean of three timed
+repetitions, not a best-of-N. Rates below are rows per second, which is what
+the harness reports directly; file sizes are printed by the bench so any
+byte rate you want can be derived from them.
 
 ### `Value` against `RecordCursor`
 
-`pixi run bench` writes both files and reads each three ways;
-`pixi run bench-fastavro` then reads the very same files with
+`pixi run -e bench bench` writes both files and reads each three ways;
+`pixi run -e bench bench-fastavro` then reads the very same files with
 [fastavro](https://github.com/fastavro/fastavro) 1.12.2, whose core is
-Cython — the honest reference, not a Python strawman.
+Cython — the honest reference, not a Python strawman. Both sets below were
+measured in the same session, so they compare.
 
 100 000 records of a manifest-shaped record (two longs, a path-like string, a
-double, an optional long):
+double, an optional long) — 4856 KiB as `null`, 1309 KiB as `deflate`:
 
 | reader | `null` | `deflate` |
 |---|---|---|
-| `Value` | 82 MB/s, 1.74 M rows/s | 78 MB/s, 1.65 M rows/s |
-| **`RecordCursor`** | **912 MB/s, 19.2 M rows/s** | **502 MB/s, 10.6 M rows/s** |
-| `RecordCursor`, 1 of 5 fields selected | 1302 MB/s, 27.5 M rows/s | 602 MB/s, 12.7 M rows/s |
-| fastavro | 83 MB/s, 1.74 M rows/s | 81 MB/s, 1.71 M rows/s |
+| `Value` | 1.48 M rows/s | 1.39 M rows/s |
+| **`RecordCursor`** | **17.9 M rows/s** | **9.8 M rows/s** |
+| `RecordCursor`, 1 of 5 fields selected | 25.8 M rows/s | 11.7 M rows/s |
+| fastavro | 1.66 M rows/s | 1.62 M rows/s |
 
 100 000 real Iceberg `manifest_entry` records — the fixture's own schema and
-entries, nested `data_file`, four metric maps, partition struct and all:
+entries, nested `data_file`, four metric maps, partition struct and all —
+34780 KiB as `null`, 620 KiB as `deflate`:
 
 | reader | `null` | `deflate` |
 |---|---|---|
-| `Value` | 42 MB/s, 126 k rows/s | 41 MB/s, 122 k rows/s |
-| **`RecordCursor`** | **444 MB/s, 1.31 M rows/s** | **368 MB/s, 1.08 M rows/s** |
-| `RecordCursor`, 3 fields selected | 612 MB/s, 1.80 M rows/s | 471 MB/s, 1.39 M rows/s |
-| fastavro | 35 MB/s, 103 k rows/s | 35 MB/s, 103 k rows/s |
+| `Value` | 111 k rows/s | 109 k rows/s |
+| **`RecordCursor`** | **1.19 M rows/s** | **995 k rows/s** |
+| `RecordCursor`, 3 fields selected | 1.64 M rows/s | 1.30 M rows/s |
+| fastavro | 99 k rows/s | 98 k rows/s |
 
-So the cursor is **10-11x** the `Value` path on either shape, 14-16x with a
-selection, and 11-13x fastavro. The `Value` path itself is already at
-fastavro's speed — which is the honest reason the cursor exists. There was no
-more room inside a dynamically typed datum; the win had to come from not
-building one.
+So the cursor is **11-12x** the `Value` path on either shape under `null`,
+15-17x with a selection, and 11-12x fastavro. Under `deflate` the win
+narrows to 7-9x, because inflating the block is a cost both paths pay. The
+`Value` path itself lands within about 10% of fastavro — which is the honest
+reason the cursor exists. There was no more room inside a dynamically typed
+datum; the win had to come from not building one.
+
+Figures published before 2026-09-01 were a best-of-3 and ran a few percent
+higher across the board, fastavro included. The ratios are unchanged.
 
 ### The rest
 
-`pixi run bench` — 100 000 six-field records (a long, a string, a double, a
-boolean, a two-element array and an optional string), 4.0 MiB of datum stream:
+`pixi run -e bench bench` — 100 000 six-field records (a long, a string, a
+double, a boolean, a two-element array and an optional string), 4043 KiB of
+datum stream:
 
-| operation | throughput | rows/s |
+| operation | rows/s | time |
 |---|---|---|
-| encode (datum stream) | 215 MB/s | 5.5 M |
-| decode (datum stream) | 46 MB/s | 1.2 M |
-| OCF write, `null` | 233 MB/s | 5.9 M |
-| OCF write, `deflate` | 40 MB/s | 1.0 M |
-| `deflate` alone | 48 MB/s | — |
-| **`inflate` alone** | **860-1000 MB/s** | — |
+| encode (datum stream) | 5.59 M | 17.9 ms |
+| decode (datum stream) | 1.00 M | 100.0 ms |
+| OCF write, `null` | 5.40 M | 18.5 ms |
+| OCF read, `null` | 996 k | 100.4 ms |
+| OCF write, `deflate` | 917 k | 109.1 ms |
+| OCF read, `deflate` | 949 k | 105.3 ms |
+| `deflate` alone | — | 92.9 ms (44.5 MB/s) |
+| **`inflate` alone** | — | **4.0 ms (1.03 GB/s)** |
 
 `inflate` used to be 104 MB/s — a bit-at-a-time "puff" decoder. It now reads
 Huffman codes out of a 512-entry table, refills a 64-bit bit buffer with one
