@@ -400,6 +400,14 @@ repetitions, not a best-of-N. Rates below are rows per second, which is what
 the harness reports directly; file sizes are printed by the bench so any
 byte rate you want can be derived from them.
 
+Every push to `main` re-runs these on a GitHub runner and appends to a history
+published at
+[magmalake.github.io/avro.mojo/benchmarks](https://magmalake.github.io/avro.mojo/benchmarks/).
+Those numbers are slower and noisier than the ones below, which were taken on
+an M4 — each history is keyed by machine, so the two stay separate series and
+are never averaged together. The fastavro comparison is not part of that run;
+it needs `uv` and stays a local check.
+
 ### `Value` against `RecordCursor`
 
 `pixi run -e bench bench` writes both files and reads each three ways;
