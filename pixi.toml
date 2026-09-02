@@ -2,7 +2,7 @@
 authors = ["Marius S <39998+winding-lines@users.noreply.github.com>"]
 channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
 name = "avro.mojo"
-version = "0.3.0"
+version = "0.3.1"
 description = "Pure-Mojo Apache Avro — schemas, binary encoding, Object Container Files, and the codecs Apache Iceberg needs."
 preview = ["pixi-build"]
 platforms = ["osx-arm64", "linux-64"]
@@ -26,7 +26,7 @@ test-cursor = { cmd = "mkdir -p build && mojo build tests/test_cursor.mojo -I sr
 # Conda package name is avro-mojo; the Mojo import stays `from avro import …`.
 [package]
 name = "avro-mojo"
-version = "0.3.0"
+version = "0.3.1"
 
 [package.build]
 backend = { name = "pixi-build-mojo", version = "0.*" }
