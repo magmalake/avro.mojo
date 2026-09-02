@@ -304,6 +304,18 @@ struct _Out(Copyable, Defaultable, Movable, Sized):
 
 def inflate(data: Span[UInt8, _]) raises -> List[UInt8]:
     """Decompress a raw DEFLATE stream."""
+    var end = 0
+    return inflate_at(data, end)
+
+
+def inflate_at(data: Span[UInt8, _], mut end: Int) raises -> List[UInt8]:
+    """Decompress a DEFLATE stream, and report where it ended.
+
+    `end` is set to the offset of the first byte *after* the stream, rounded
+    up to a byte boundary. Callers with several streams back to back —
+    concatenated gzip members, for instance — need it to find the next one;
+    callers that do not can use `inflate`.
+    """
     var out = _Out(len(data) * 3 + 64)
     var t = _Tables()
     var br = _BitReader(data)
@@ -370,6 +382,9 @@ def inflate(data: Span[UInt8, _]) raises -> List[UInt8]:
             raise Error("avro.deflate: reserved block type 3")
         if final:
             break
+    # `br.pos` is the next byte not yet pulled into the bit buffer, so whole
+    # bytes still sitting in that buffer have not actually been consumed.
+    end = br.pos - br.bitcnt // 8
     return out^.finish()
 
 
