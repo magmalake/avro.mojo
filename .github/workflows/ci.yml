@@ -69,3 +69,7 @@ jobs:
       - name: Codec tests
         working-directory: avro.mojo
         run: pixi run -e ${{ matrix.env }} test-codecs
+
+      - name: Lint (mojolint --lsp)
+        working-directory: avro.mojo
+        run: pixi run -e ${{ matrix.env }} lint
