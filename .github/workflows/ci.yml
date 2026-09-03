@@ -17,12 +17,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: prefix-dev/setup-pixi@v0.9.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
           # Pinned: pixi.lock is written by this version, and pixi changed how
           # it hashes git source dependencies after it, so a newer pixi
           # rejects the committed lock with "lock file not up-to-date".
-          pixi-version: v0.71.1
+          pixi-version: v0.78.0
           environments: ${{ matrix.env }}
 
       - name: Unit tests
@@ -32,18 +32,19 @@ jobs:
         run: pixi run -e ${{ matrix.env }} test-cursor
 
   codecs:
-    # The optional snappy / zstandard codecs. Both sibling tins ship a
-    # `.mojopkg` built with stable Mojo that the nightly compiler cannot load,
-    # so the sources are checked out next to this repo and put on the include
-    # path; the pixi git source dependencies are still what installs libzstd
-    # and its dlopen shim.
-    name: codecs ${{ matrix.env == 'codecs' && 'nightly' || 'stable' }} / ${{ matrix.os }}
+    # The optional snappy / zstandard codecs. The sources are checked out next
+    # to this repo and put on the include path; the pixi git source
+    # dependencies are still what installs libzstd and its dlopen shim.
+    # Stable only: the source build also drops a `.mojoc` compiled with 1.0.0
+    # into the environment, and a nightly compiler refuses to load it
+    # (`codecs` stays in pixi.toml for local use with a matching compiler).
+    name: codecs stable / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        env: [codecs, codecs-stable]
+        env: [codecs-stable]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,9 +60,9 @@ jobs:
           repository: magmalake/zstd.mojo
           path: zstd.mojo
 
-      - uses: prefix-dev/setup-pixi@v0.9.0
+      - uses: prefix-dev/setup-pixi@v0.10.2
         with:
-          pixi-version: v0.71.1
+          pixi-version: v0.78.0
           manifest-path: avro.mojo/pixi.toml
           environments: ${{ matrix.env }}
 
