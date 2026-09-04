@@ -1,4 +1,4 @@
-"""avro.mojo — Apache Avro in pure Mojo.
+"""Apache Avro in pure Mojo — the `avro` package of avro.mojo.
 
 Part of magmalake: data lake building blocks in Mojo.
 
