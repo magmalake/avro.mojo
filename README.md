@@ -358,7 +358,7 @@ The sibling tins arrive as pixi **git source dependencies** in the `codecs`
 feature, not path dependencies: pixi solves every environment even when it
 installs only one, so a path dependency to `../zstd.mojo` would break
 `pixi install` for anyone who cloned just this repo. Both tins also install a
-`lib/mojo/*.mojopkg`, but those are built with stable Mojo 1.0.0 and the
+`lib/mojo/*.mojoc`, but those are built with stable Mojo 1.0.0 and the
 nightly compiler cannot load them, so `test-codecs` compiles the siblings
 from source (`-I ../snappy.mojo/src -I ../zstd.mojo/src`) and CI checks the
 two repos out next to this one.
