@@ -2,7 +2,7 @@
 authors = ["Marius S <39998+winding-lines@users.noreply.github.com>"]
 channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
 name = "avro.mojo"
-version = "0.4.0"
+version = "0.4.1"
 description = "Pure-Mojo Apache Avro — schemas, binary encoding, Object Container Files, and the codecs Apache Iceberg needs."
 preview = ["pixi-build"]
 platforms = ["osx-arm64", "linux-64"]
@@ -34,7 +34,7 @@ lint = { cmd = "mojolint --lsp -I src -I tests -I ../deflate.mojo/src -I ../snap
 # Conda package name is avro-mojo; the Mojo import stays `from avro import …`.
 [package]
 name = "avro-mojo"
-version = "0.4.0"
+version = "0.4.1"
 
 [package.build]
 backend = { name = "pixi-build-mojo", version = "0.*" }
@@ -42,6 +42,12 @@ backend = { name = "pixi-build-mojo", version = "0.*" }
 [package.build.config.pkg]
 path = "src/avro"
 name = "avro"
+# deflate-mojo arrives as a .mojopkg in the host prefix, and pixi-build-mojo
+# does not put host dependencies on the Mojo import path by itself. Without
+# this the package build fails with "unable to locate module 'deflate'" —
+# only when a *consumer* installs the tin, never in this repo's own tasks,
+# which compile the sibling from source.
+extra-args = ["-I", "$PREFIX/lib/mojo"]
 
 [package.host-dependencies]
 mojo-compiler = "==1.0.0"
