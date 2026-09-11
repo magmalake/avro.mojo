@@ -2,8 +2,9 @@
 
 `DataFileReader` and `DataFileWriter` are parametrised on a `CodecSet`, a
 compile-time table of block compressors. The default set — `DefaultCodecs` —
-covers `null` and `deflate`, both implemented in this repo, so the core
-library has no dependencies at all.
+covers `null` and `deflate`. Avro's `deflate` is raw DEFLATE, which comes
+from the sibling `deflate.mojo` tin: pure Mojo, no FFI, so the core library
+still links nothing.
 
 `snappy` and `zstandard` live in `avro.ext_snappy` / `avro.ext_zstd`, which
 import the sibling magmalake tins. Nothing in `avro/__init__.mojo` imports
@@ -17,7 +18,7 @@ var r = DataFileReader[AllCodecs].open("f.avro")
 ```
 """
 
-from avro.deflate import deflate, inflate
+from deflate import deflate, inflate
 
 
 trait CodecSet:
@@ -55,7 +56,7 @@ def unknown_codec(name: StringSlice) -> Error:
 
 
 struct DefaultCodecs(CodecSet):
-    """`null` and `deflate` — no dependencies outside this repo."""
+    """`null` and `deflate` — nothing beyond the pure-Mojo `deflate.mojo`."""
 
     @staticmethod
     def supports(name: StringSlice) -> Bool:

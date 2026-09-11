@@ -25,10 +25,14 @@ while c.next():
     print(c.get_str(path))
 ```
 
-Everything reachable from this module is dependency-free (the `null` and
-`deflate` block codecs are implemented in this repo). `snappy` and
-`zstandard` live in `avro.ext_snappy` / `avro.ext_zstd`, which pull in the
-sibling `snappy.mojo` and `zstd.mojo` tins.
+Everything reachable from this module works on the `null` and `deflate` block
+codecs, which need nothing but the sibling `deflate.mojo` tin — raw DEFLATE,
+pure Mojo, no FFI. `snappy` and `zstandard` live in `avro.ext_snappy` /
+`avro.ext_zstd`, which pull in `snappy.mojo` and `zstd.mojo`.
+
+`inflate` and `deflate` themselves are no longer re-exported here. They moved
+to `deflate.mojo` in avro 0.4.0, because `parquet.mojo` and `iceberg.mojo`
+wanted raw DEFLATE without wanting Avro. Import them from `deflate`.
 """
 
 from avro.codec import CodecSet, DefaultCodecs, unknown_codec
@@ -53,7 +57,6 @@ from avro.cursor import (
     schema_hash,
 )
 from avro.decoder import Decoder
-from avro.deflate import deflate, inflate
 from avro.encoder import Encoder, encode_value
 from avro.json import JsonDoc, parse_json
 from avro.resolve import ResolvedReader, resolve

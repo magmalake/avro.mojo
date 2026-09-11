@@ -26,9 +26,10 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo" }
 from snappy import compress as snappy_compress, decompress as snappy_decompress
 from zstd import compress as zstd_compress, decompress as zstd_decompress
 
+from deflate import deflate, inflate
+
 from avro.codec import CodecSet, unknown_codec
 from avro.crc32 import crc32
-from avro.deflate import deflate, inflate
 
 
 def _copy_of(data: Span[UInt8, _]) -> List[UInt8]:

@@ -3,7 +3,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p build/crosscheck
-mojo build tools/write_crosscheck.mojo -I src -I ../snappy.mojo/src \
+mojo build tools/write_crosscheck.mojo -I src -I ../deflate.mojo/src -I ../snappy.mojo/src \
     -I ../zstd.mojo/src -o build/avro-crosscheck
 ./build/avro-crosscheck build/crosscheck
 if [ ! -x build/crosscheck-venv/bin/python ]; then
