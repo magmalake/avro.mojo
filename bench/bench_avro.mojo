@@ -20,6 +20,8 @@ than five.
 
 from bench import Benchmark, BenchSuite, Metric, keep
 
+from deflate import deflate, inflate
+
 from avro import (
     DataFileReader,
     RecordCursor,
@@ -28,8 +30,6 @@ from avro import (
     Encoder,
     Schema,
     Value,
-    deflate,
-    inflate,
     parse_schema,
 )
 from avro.value import ArrayBuilder, RecordBuilder
