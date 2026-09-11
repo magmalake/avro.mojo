@@ -9,6 +9,21 @@ Releases before 0.4.0 predate this file; their contents are in the commit log.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-09-11
+
+Makes 0.4.0 installable. The package build had no `extra-args` putting the
+host prefix on the Mojo import path, which was fine while this library had no
+sibling dependencies and broke the moment it gained one:
+
+```
+src/avro/codec.mojo:21:6: error: unable to locate module 'deflate'
+```
+
+**0.4.0 cannot be installed as a tin and should not be used.** The failure
+appears only when a consumer builds the package — this repository's own tasks
+compile `deflate.mojo` from a source path, so every test and lint stayed green.
+
+
 ## [0.4.0] - 2026-09-11
 
 Raw DEFLATE moved out of this repository into its own tin,
