@@ -7,6 +7,10 @@ on:
 
 jobs:
   test:
+    # deflate.mojo (raw DEFLATE, pure Mojo) is checked out next to this repo
+    # and put on the include path — the `deflate` block codec needs it. The
+    # pixi git source dependency is what a *consumer* resolves; in CI the
+    # sources are compiled directly, so the two toolchains can both build it.
     name: ${{ matrix.env == 'default' && 'nightly' || matrix.env }} / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
@@ -16,6 +20,13 @@ jobs:
         env: [default, stable]
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: avro.mojo
+
+      - uses: actions/checkout@v4
+        with:
+          repository: magmalake/deflate.mojo
+          path: deflate.mojo
 
       - uses: prefix-dev/setup-pixi@v0.10.2
         with:
@@ -23,12 +34,15 @@ jobs:
           # it hashes git source dependencies after it, so a newer pixi
           # rejects the committed lock with "lock file not up-to-date".
           pixi-version: v0.78.0
+          manifest-path: avro.mojo/pixi.toml
           environments: ${{ matrix.env }}
 
       - name: Unit tests
+        working-directory: avro.mojo
         run: pixi run -e ${{ matrix.env }} test
 
       - name: Cursor tests
+        working-directory: avro.mojo
         run: pixi run -e ${{ matrix.env }} test-cursor
 
   codecs:
@@ -49,6 +63,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           path: avro.mojo
+
+      - uses: actions/checkout@v4
+        with:
+          repository: magmalake/deflate.mojo
+          path: deflate.mojo
 
       - uses: actions/checkout@v4
         with:

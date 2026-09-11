@@ -10,9 +10,7 @@ from avro import (
     Schema,
     Value,
     crc32,
-    deflate,
     encode_value,
-    inflate,
     parse_json,
     parse_schema,
     resolve,
@@ -380,33 +378,9 @@ def test_nested_round_trip() raises:
     assert_true(back.field("items").at(1).field_raw("tag").is_null())
 
 
-# ── deflate ────────────────────────────────────────────────────────────────
-
-
-def test_deflate_round_trip() raises:
-    var src = List[UInt8]()
-    for i in range(50000):
-        src.append(UInt8((i * 7 + i // 97) % 251))
-    for i in range(20000):
-        src.append(UInt8(65 + i % 5))
-    var z = deflate(Span(src))
-    assert_true(len(z) < len(src) // 2)
-    var back = inflate(Span(z))
-    assert_equal(len(back), len(src))
-    for i in range(len(src)):
-        if back[i] != src[i]:
-            raise Error(String("deflate round trip differs at ", i))
-
-
-def test_deflate_edge_cases() raises:
-    var empty = List[UInt8]()
-    assert_equal(len(inflate(Span(deflate(Span(empty))))), 0)
-    var one = bytes_of("a")
-    assert_equal(len(inflate(Span(deflate(Span(one))))), 1)
-    var run = List[UInt8](length=1000, fill=7)
-    var back = inflate(Span(deflate(Span(run))))
-    assert_equal(len(back), 1000)
-    assert_equal(back[999], UInt8(7))
+# DEFLATE itself is tested in deflate.mojo, where it now lives; what remains
+# here is that the `deflate` *block codec* round-trips through an OCF, which
+# `test_ocf_deflate_codec` below covers.
 
 
 def test_crc32() raises:

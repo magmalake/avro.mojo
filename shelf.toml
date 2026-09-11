@@ -1,6 +1,6 @@
 name = "avro-mojo"
-version = "0.3.2"
-description = "Pure-Mojo Apache Avro — schemas, binary codec, Object Container Files, deflate/snappy/zstd"
+version = "0.4.0"
+description = "Pure-Mojo Apache Avro — schemas, binary codec, Object Container Files, snappy/zstd block codecs (deflate via deflate-mojo)"
 tags = ["avro", "iceberg", "data-lake", "serialization", "ocf"]
 # other tins this one depends on; omit if none
-tins = []
+tins = ["deflate-mojo"]

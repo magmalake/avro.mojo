@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 if [ ! -d build/bench ]; then
     echo "no build/bench — running the Mojo bench first" >&2
-    mkdir -p build && mojo build bench/bench_avro.mojo -I src -o build/avro-bench
+    mkdir -p build && mojo build bench/bench_avro.mojo -I src -I ../deflate.mojo/src -o build/avro-bench
     ./build/avro-bench > /dev/null
 fi
 if [ ! -x build/bench-venv/bin/python ]; then
