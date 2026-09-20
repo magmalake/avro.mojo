@@ -49,9 +49,12 @@ jobs:
     # The optional snappy / zstandard codecs. The sources are checked out next
     # to this repo and put on the include path; the pixi git source
     # dependencies are still what installs libzstd and its dlopen shim.
-    # Stable only: the source build also drops a `.mojoc` compiled with 1.0.0
-    # into the environment, and a nightly compiler refuses to load it
-    # (`codecs` stays in pixi.toml for local use with a matching compiler).
+    # Stable only: the source build also drops a `.mojoc` compiled with the
+    # stable toolchain (1.1.0) into the environment, and a nightly compiler
+    # refuses to load it — pixi builds a source dependency once and installs
+    # the same artifact into every environment, so the two cannot differ
+    # (prefix-dev/pixi#6940). `codecs` stays in pixi.toml for local use with a
+    # matching compiler.
     name: codecs stable / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:

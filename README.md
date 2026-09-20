@@ -358,7 +358,7 @@ The sibling tins arrive as pixi **git source dependencies** in the `codecs`
 feature, not path dependencies: pixi solves every environment even when it
 installs only one, so a path dependency to `../zstd.mojo` would break
 `pixi install` for anyone who cloned just this repo. Both tins also install a
-`lib/mojo/*.mojoc`, but those are built with stable Mojo 1.0.0 and the
+`lib/mojo/*.mojoc`, but those are built with the stable toolchain and the
 nightly compiler cannot load them, so `test-codecs` compiles the siblings
 from source (`-I ../snappy.mojo/src -I ../zstd.mojo/src`) and CI checks the
 two repos out next to this one.
@@ -394,7 +394,8 @@ all 4 codecs round-trip through fastavro
 
 ## Performance
 
-Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0, through
+Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0 — the toolchain of the
+time; not re-measured since the tin moved to 1.1.0 — through
 [bench.mojo](https://github.com/magmalake/bench.mojo) — mean of three timed
 repetitions, not a best-of-N. Rates below are rows per second, which is what
 the harness reports directly; file sizes are printed by the bench so any
@@ -497,7 +498,7 @@ A hit costs a hash and a memcmp over the schema bytes and a refcount bump.
 ## Test
 
 ```sh
-pixi run -e stable test           # core: stable Mojo 1.0.0
+pixi run -e stable test           # core: stable Mojo 1.1.0
 pixi run -e stable test-cursor    # the schema-compiled reader
 pixi run -e default test          # core: nightly
 pixi run -e default test-cursor
@@ -509,7 +510,7 @@ pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
 The core suite is 41 tests, the cursor suite 26, the codec suite 8. All run on
-stable 1.0.0 and on nightly, on `osx-arm64` and `linux-64`.
+stable 1.1.0 and on nightly, on `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same
 files and every field is compared, over every Avro type on the fastavro

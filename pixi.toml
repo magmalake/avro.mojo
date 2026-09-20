@@ -13,7 +13,7 @@ platforms = ["osx-arm64", "linux-64"]
 test = { cmd = "mkdir -p build && mojo build tests/test_avro.mojo -I src -I tests -I ../deflate.mojo/src -o build/avro-test && ./build/avro-test" }
 # The optional codecs (snappy, zstandard) pull in the sibling magmalake tins,
 # so they live in their own environments: `pixi run -e codecs test-codecs`
-# (nightly) and `-e codecs-stable` (stable 1.0.0). The sibling *sources* are
+# (nightly) and `-e codecs-stable` (stable 1.1.0). The sibling *sources* are
 # on the include path — see the comment on [feature.codecs.dependencies].
 test-codecs = { cmd = "mkdir -p build && mojo build tests/test_codecs.mojo -I src -I tests -I ../deflate.mojo/src -I ../snappy.mojo/src -I ../zstd.mojo/src -o build/avro-codecs-test && ./build/avro-codecs-test" }
 # Interoperability the other way round: write a file per codec and have
@@ -50,23 +50,23 @@ name = "avro"
 extra-args = ["-I", "$PREFIX/lib/mojo"]
 
 [package.host-dependencies]
-mojo-compiler = "==1.0.0"
+mojo-compiler = "==1.1.0"
 # Raw DEFLATE for the `deflate` block codec. Lived in this repo until
 # 0.4.0; parquet.mojo and iceberg.mojo wanted it without wanting Avro.
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "5eda47ba9135bb3dbe80fef522e7067ec4bd76a3" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "beba3ff1a20c29f2e1148cd9a291c56183dc8156" }
 
 [package.build-dependencies]
-mojo-compiler = "==1.0.0"
+mojo-compiler = "==1.1.0"
 
 [package.run-dependencies]
-mojo-compiler = ">=1.0.0,<2"
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "5eda47ba9135bb3dbe80fef522e7067ec4bd76a3" }
+mojo-compiler = ">=1.1.0,<2"
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "beba3ff1a20c29f2e1148cd9a291c56183dc8156" }
 
 [feature.nightly.dependencies]
-modular = ">=26.6.0.dev2026082605,<27"
+modular = ">=26.7.0.dev2026092005,<28"
 
 [feature.stable.dependencies]
-mojo-compiler = "==1.0.0"
+mojo-compiler = "==1.1.0"
 
 # ── optional codecs ─────────────────────────────────────────────────────────
 # The sibling tins come in as pixi *git source* dependencies, not path
@@ -76,7 +76,7 @@ mojo-compiler = "==1.0.0"
 #
 # zstd.mojo is an FFI tin — this is what puts libzstd and its dlopen shim
 # (libzstdmojo.so) into the environment. Both tins also install a
-# `lib/mojo/*.mojopkg`, but those are built with stable Mojo 1.0.0 and the
+# `lib/mojo/*.mojopkg`, but those are built with stable Mojo 1.1.0 and the
 # nightly compiler cannot load them, so `test-codecs` compiles the siblings
 # from source with `-I ../snappy.mojo/src -I ../zstd.mojo/src` instead. CI
 # checks the two repos out next to this one.
@@ -88,10 +88,10 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo" }
 # their own feature, so the tin stays out of the environments that run tests.
 # -I $CONDA_PREFIX/lib/mojo is what puts its precompiled package on the import
 # path. Stable only: a precompiled Mojo package is stamped with the compiler
-# version that built it and refused by any other, and tins build with 1.0.0.
+# version that built it and refused by any other, and tins build with 1.1.0.
 [feature.bench.dependencies]
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "5eda47ba9135bb3dbe80fef522e7067ec4bd76a3" }
-bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "4f4440fa6e61c9ca7c7573ca6aa2f8f1d606d88a" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "beba3ff1a20c29f2e1148cd9a291c56183dc8156" }
+bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "e12117679ea7d55c16a7250958340fa096e49eed" }
 
 [feature.bench.tasks]
 bench = "mkdir -p build && mojo build -I src -I $CONDA_PREFIX/lib/mojo bench/bench_avro.mojo -o build/bench-avro && ./build/bench-avro"
@@ -111,4 +111,4 @@ bench = ["stable", "bench"]
 # Added by `pixi shelf add lint-mojo`: the linter comes from GitHub as a pixi
 # source dependency pinned at the revision mojoshelf published, and builds
 # the `mojolint` executable into every environment next to mojo-lsp-server.
-lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "3fa66644756c1de7aece83e5a89375323b6e0ce7" }
+lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "5682b29cedd8d7cd768543ef26ab930732232b79" }
