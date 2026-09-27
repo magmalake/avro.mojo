@@ -509,8 +509,8 @@ pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core suite is 41 tests, the cursor suite 26, the codec suite 8. All run on
-stable 1.1.0 and on nightly, on `osx-arm64` and `linux-64`.
+The core, cursor and codec suites all run on stable 1.1.0 and on nightly, on
+`osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same
 files and every field is compared, over every Avro type on the fastavro
