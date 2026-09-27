@@ -142,14 +142,13 @@ def bench_encode_datum(mut b: Benchmark) raises:
     var rows = _rows(N)
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm schema, imm rows}:
         var e = Encoder(capacity=N * 64)
         for i in range(N):
             e.write_value(schema, rows[i])
         keep(e^.take())
 
-    b.iter[call]()
+    b.iter(call)
     keep(schema)
     keep(rows)
 
@@ -159,15 +158,14 @@ def bench_decode_datum(mut b: Benchmark) raises:
     var raw = _encoded(schema, _rows(N))
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm schema, imm raw}:
         var d = Decoder(Span(raw))
         var checksum = Int64(0)
         for _ in range(N):
             checksum += d.read_value(schema).at(0).as_long()
         keep(checksum)
 
-    b.iter[call]()
+    b.iter(call)
     keep(schema)
     keep(raw)
 
@@ -186,11 +184,10 @@ def bench_ocf_write_null(mut b: Benchmark) raises:
     var rows = _rows(N)
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm rows}:
         keep(_ocf("null", rows))
 
-    b.iter[call]()
+    b.iter(call)
     keep(rows)
 
 
@@ -198,8 +195,7 @@ def bench_ocf_read_null(mut b: Benchmark) raises:
     var file = _ocf("null", _rows(N))
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         var r = DataFileReader.from_bytes(Span(file))
         var seen = 0
         while r.has_next():
@@ -207,7 +203,7 @@ def bench_ocf_read_null(mut b: Benchmark) raises:
             seen += 1
         keep(seen)
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -215,11 +211,10 @@ def bench_ocf_write_deflate(mut b: Benchmark) raises:
     var rows = _rows(N)
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm rows}:
         keep(_ocf("deflate", rows))
 
-    b.iter[call]()
+    b.iter(call)
     keep(rows)
 
 
@@ -227,8 +222,7 @@ def bench_ocf_read_deflate(mut b: Benchmark) raises:
     var file = _ocf("deflate", _rows(N))
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         var r = DataFileReader.from_bytes(Span(file))
         var seen = 0
         while r.has_next():
@@ -236,7 +230,7 @@ def bench_ocf_read_deflate(mut b: Benchmark) raises:
             seen += 1
         keep(seen)
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -247,11 +241,10 @@ def bench_deflate(mut b: Benchmark) raises:
     var raw = _encoded(parse_schema(SCHEMA_JSON), _rows(N))
     b.throughput(Metric.bytes(), len(raw))
 
-    @parameter
-    def call() raises:
+    def call() raises {imm raw}:
         keep(deflate(Span(raw)))
 
-    b.iter[call]()
+    b.iter(call)
     keep(raw)
 
 
@@ -261,11 +254,10 @@ def bench_inflate(mut b: Benchmark) raises:
     # Against the uncompressed size, so deflate and inflate share a scale.
     b.throughput(Metric.bytes(), len(raw))
 
-    @parameter
-    def call() raises:
+    def call() raises {imm z}:
         keep(inflate(Span(z)))
 
-    b.iter[call]()
+    b.iter(call)
     keep(raw)
     keep(z)
 
@@ -312,11 +304,10 @@ def bench_shape5_null_value(mut b: Benchmark) raises:
     var file = _shape_file(_manifest_shaped_rows(), "null")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_values(file))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -325,11 +316,10 @@ def bench_shape5_null_cursor(mut b: Benchmark) raises:
     var file = _shape_file(_manifest_shaped_rows(), "null")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_cursor(file, List[String]()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -339,11 +329,10 @@ def bench_shape5_null_cursor_select(mut b: Benchmark) raises:
     var sel: List[String] = ["a"]
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file, imm sel}:
         keep(_read_cursor(file, sel.copy()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(sel)
     keep(file)
 
@@ -353,11 +342,10 @@ def bench_shape5_deflate_value(mut b: Benchmark) raises:
     var file = _shape_file(_manifest_shaped_rows(), "deflate")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_values(file))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -366,11 +354,10 @@ def bench_shape5_deflate_cursor(mut b: Benchmark) raises:
     var file = _shape_file(_manifest_shaped_rows(), "deflate")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_cursor(file, List[String]()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -380,11 +367,10 @@ def bench_shape5_deflate_cursor_select(mut b: Benchmark) raises:
     var sel: List[String] = ["a"]
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file, imm sel}:
         keep(_read_cursor(file, sel.copy()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(sel)
     keep(file)
 
@@ -394,11 +380,10 @@ def bench_manifest_null_value(mut b: Benchmark) raises:
     var file = _shape_file(_replicated_manifest(), "null")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_values(file))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -407,11 +392,10 @@ def bench_manifest_null_cursor(mut b: Benchmark) raises:
     var file = _shape_file(_replicated_manifest(), "null")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_cursor(file, List[String]()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -421,11 +405,10 @@ def bench_manifest_null_cursor_select(mut b: Benchmark) raises:
     var sel: List[String] = ["status", "data_file.file_path", "data_file.record_count"]
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file, imm sel}:
         keep(_read_cursor(file, sel.copy()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(sel)
     keep(file)
 
@@ -435,11 +418,10 @@ def bench_manifest_deflate_value(mut b: Benchmark) raises:
     var file = _shape_file(_replicated_manifest(), "deflate")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_values(file))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -448,11 +430,10 @@ def bench_manifest_deflate_cursor(mut b: Benchmark) raises:
     var file = _shape_file(_replicated_manifest(), "deflate")
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file}:
         keep(_read_cursor(file, List[String]()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(file)
 
 
@@ -462,11 +443,10 @@ def bench_manifest_deflate_cursor_select(mut b: Benchmark) raises:
     var sel: List[String] = ["status", "data_file.file_path", "data_file.record_count"]
     b.throughput(Metric.elements(), N)
 
-    @parameter
-    def call() raises:
+    def call() raises {imm file, imm sel}:
         keep(_read_cursor(file, sel.copy()))
 
-    b.iter[call]()
+    b.iter(call)
     keep(sel)
     keep(file)
 

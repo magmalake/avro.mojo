@@ -91,7 +91,7 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo" }
 # version that built it and refused by any other, and tins build with 1.1.0.
 [feature.bench.dependencies]
 deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "beba3ff1a20c29f2e1148cd9a291c56183dc8156" }
-bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "e12117679ea7d55c16a7250958340fa096e49eed" }
+bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "373e3903e724b79a47d5f5921e690ef95d31b09f" }
 
 [feature.bench.tasks]
 bench = "mkdir -p build && mojo build -I src -I $CONDA_PREFIX/lib/mojo bench/bench_avro.mojo -o build/bench-avro && ./build/bench-avro"
