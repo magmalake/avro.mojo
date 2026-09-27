@@ -9,6 +9,17 @@ Releases before 0.4.0 predate this file; their contents are in the commit log.
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-09-26
+
+### Changed
+
+- Built with Mojo 1.1.0. `mojo-compiler` is pinned `==1.1.0` for the package
+  build and required `>=1.1.0,<2` at run time, and the `nightly` environment
+  tracks Mojo 1.2.0.dev. The published 0.4.1 was built with 1.0.0, whose
+  precompiled `.mojoc` a 1.1.0 compiler refuses.
+- `snappy-mojo` and `zstd-mojo` re-locked to current revisions; `zstd-mojo`
+  had been pinned at its first commit.
+
 ## [0.4.1] - 2026-09-11
 
 Makes 0.4.0 installable. The package build had no `extra-args` putting the
