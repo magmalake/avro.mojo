@@ -63,7 +63,7 @@ mojo-compiler = ">=1.1.0,<2"
 deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "beba3ff1a20c29f2e1148cd9a291c56183dc8156" }
 
 [feature.nightly.dependencies]
-modular = ">=26.7.0.dev2026092005,<28"
+modular = ">=26.7.0.dev2026101905,<28"
 
 [feature.stable.dependencies]
 mojo-compiler = "==1.1.0"
