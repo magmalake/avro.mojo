@@ -42,56 +42,60 @@ comptime FIXED: Int = 13
 
 
 def kind_name(kind: Int) -> String:
-    if kind == NULL:
-        return "null"
-    if kind == BOOLEAN:
-        return "boolean"
-    if kind == INT:
-        return "int"
-    if kind == LONG:
-        return "long"
-    if kind == FLOAT:
-        return "float"
-    if kind == DOUBLE:
-        return "double"
-    if kind == BYTES:
-        return "bytes"
-    if kind == STRING:
-        return "string"
-    if kind == RECORD:
-        return "record"
-    if kind == ENUM:
-        return "enum"
-    if kind == ARRAY:
-        return "array"
-    if kind == MAP:
-        return "map"
-    if kind == UNION:
-        return "union"
-    if kind == FIXED:
-        return "fixed"
-    return "?"
+    match kind:
+        case == NULL:
+            return "null"
+        case == BOOLEAN:
+            return "boolean"
+        case == INT:
+            return "int"
+        case == LONG:
+            return "long"
+        case == FLOAT:
+            return "float"
+        case == DOUBLE:
+            return "double"
+        case == BYTES:
+            return "bytes"
+        case == STRING:
+            return "string"
+        case == RECORD:
+            return "record"
+        case == ENUM:
+            return "enum"
+        case == ARRAY:
+            return "array"
+        case == MAP:
+            return "map"
+        case == UNION:
+            return "union"
+        case == FIXED:
+            return "fixed"
+        case _:
+            return "?"
 
 
 def primitive_kind(name: StringSlice) -> Int:
     """Kind for a primitive type name, or -1 if `name` is not primitive."""
-    if name == "null":
-        return NULL
-    if name == "boolean":
-        return BOOLEAN
-    if name == "int":
-        return INT
-    if name == "long":
-        return LONG
-    if name == "float":
-        return FLOAT
-    if name == "double":
-        return DOUBLE
-    if name == "bytes":
-        return BYTES
-    if name == "string":
-        return STRING
-    return -1
+    match name:
+        case "null":
+            return NULL
+        case "boolean":
+            return BOOLEAN
+        case "int":
+            return INT
+        case "long":
+            return LONG
+        case "float":
+            return FLOAT
+        case "double":
+            return DOUBLE
+        case "bytes":
+            return BYTES
+        case "string":
+            return STRING
+        case _:
+            return -1
 
 
 def is_primitive(kind: Int) -> Bool:
@@ -233,7 +237,7 @@ struct SchemaNode(Copyable, Movable):
         var dot = self.name.rfind(".")
         if dot < 0:
             return self.name
-        return String(self.name[byte=dot + 1 :])
+        return String(self.name[byte = dot + 1 :])
 
 
 # ── schema ─────────────────────────────────────────────────────────────────

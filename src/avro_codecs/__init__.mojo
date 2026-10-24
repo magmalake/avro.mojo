@@ -92,23 +92,27 @@ struct SnappyCodecs(CodecSet):
 
     @staticmethod
     def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
-        if not name or name == "null":
-            return _copy_of(data)
-        if name == "deflate":
-            return deflate(data)
-        if name == "snappy":
-            return avro_snappy_compress(data)
-        raise unknown_codec(name)
+        match name:
+            case "" | "null":
+                return _copy_of(data)
+            case "deflate":
+                return deflate(data)
+            case "snappy":
+                return avro_snappy_compress(data)
+            case _:
+                raise unknown_codec(name)
 
     @staticmethod
     def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
-        if not name or name == "null":
-            return _copy_of(data)
-        if name == "deflate":
-            return inflate(data)
-        if name == "snappy":
-            return avro_snappy_decompress(data)
-        raise unknown_codec(name)
+        match name:
+            case "" | "null":
+                return _copy_of(data)
+            case "deflate":
+                return inflate(data)
+            case "snappy":
+                return avro_snappy_decompress(data)
+            case _:
+                raise unknown_codec(name)
 
 
 struct ZstdCodecs(CodecSet):
@@ -122,23 +126,27 @@ struct ZstdCodecs(CodecSet):
 
     @staticmethod
     def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
-        if not name or name == "null":
-            return _copy_of(data)
-        if name == "deflate":
-            return deflate(data)
-        if name == "zstandard":
-            return zstd_compress(data)
-        raise unknown_codec(name)
+        match name:
+            case "" | "null":
+                return _copy_of(data)
+            case "deflate":
+                return deflate(data)
+            case "zstandard":
+                return zstd_compress(data)
+            case _:
+                raise unknown_codec(name)
 
     @staticmethod
     def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
-        if not name or name == "null":
-            return _copy_of(data)
-        if name == "deflate":
-            return inflate(data)
-        if name == "zstandard":
-            return zstd_decompress(data)
-        raise unknown_codec(name)
+        match name:
+            case "" | "null":
+                return _copy_of(data)
+            case "deflate":
+                return inflate(data)
+            case "zstandard":
+                return zstd_decompress(data)
+            case _:
+                raise unknown_codec(name)
 
 
 struct AllCodecs(CodecSet):
