@@ -2,7 +2,7 @@
 authors = ["Marius S <39998+winding-lines@users.noreply.github.com>"]
 channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
 name = "avro.mojo"
-version = "0.4.2"
+version = "0.4.3"
 description = "Pure-Mojo Apache Avro — schemas, binary encoding, Object Container Files, and the codecs Apache Iceberg needs."
 preview = ["pixi-build"]
 platforms = ["osx-arm64", "linux-64"]
@@ -34,7 +34,7 @@ lint = { cmd = "mojolint --lsp -I src -I tests -I ../deflate.mojo/src -I ../snap
 # Conda package name is avro-mojo; the Mojo import stays `from avro import …`.
 [package]
 name = "avro-mojo"
-version = "0.4.2"
+version = "0.4.3"
 
 [package.build]
 backend = { name = "pixi-build-mojo", version = "0.*" }
@@ -53,14 +53,14 @@ extra-args = ["-I", "$PREFIX/lib/mojo"]
 mojo-compiler = "==1.2.0"
 # Raw DEFLATE for the `deflate` block codec. Lived in this repo until
 # 0.4.0; parquet.mojo and iceberg.mojo wanted it without wanting Avro.
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "3b6b06d0be3189e92ceeccedd376a1d8fbca70cb" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "aeb571e54ac736b97c826a23f44501715fddc656" }
 
 [package.build-dependencies]
 mojo-compiler = "==1.2.0"
 
 [package.run-dependencies]
 mojo-compiler = ">=1.2.0,<2"
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "3b6b06d0be3189e92ceeccedd376a1d8fbca70cb" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "aeb571e54ac736b97c826a23f44501715fddc656" }
 
 [feature.nightly.dependencies]
 modular = ">=26.8.0.dev2026102305,<28"
@@ -81,8 +81,8 @@ mojo-compiler = "==1.2.0"
 # from source with `-I ../snappy.mojo/src -I ../zstd.mojo/src` instead. CI
 # checks the two repos out next to this one.
 [feature.codecs.dependencies]
-snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo", rev = "8b0e448c842c713b65a6ad5b86ec2193cc12d48b" }
-zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "c468fa2378d999753968288f3de33d904d5bb701" }
+snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo", rev = "b8172ed0a4ef13911cc225d46e26676a5b8f1ccd" }
+zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "53655623ca8585fd5b36b1239842913ec308ae69" }
 
 # Benchmarks run through the shared harness (magmalake/bench.mojo) and get
 # their own feature, so the tin stays out of the environments that run tests.
@@ -90,7 +90,7 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "c468fa2378d
 # path. Stable only: a precompiled Mojo package is stamped with the compiler
 # version that built it and refused by any other, and tins build with 1.2.0.
 [feature.bench.dependencies]
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "3b6b06d0be3189e92ceeccedd376a1d8fbca70cb" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "aeb571e54ac736b97c826a23f44501715fddc656" }
 bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "7b6c423bbd9f31d3f126ca00e74994e08d64fe65" }
 
 [feature.bench.tasks]
@@ -111,4 +111,4 @@ bench = ["stable", "bench"]
 # Added by `pixi shelf add lint-mojo`: the linter comes from GitHub as a pixi
 # source dependency pinned at the revision mojoshelf published, and builds
 # the `mojolint` executable into every environment next to mojo-lsp-server.
-lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "4a635f9a0ca0b7b639cd3823534cf0b36ff63985" }
+lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "5799cd56eca15ad142a9c8ba300ad45c5eca96f4" }
