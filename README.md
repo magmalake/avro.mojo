@@ -395,7 +395,7 @@ all 4 codecs round-trip through fastavro
 ## Performance
 
 Apple M4, one core, `osx-arm64`, stable Mojo 1.0.0 — the toolchain of the
-time; not re-measured since the tin moved to 1.1.0 — through
+time; not re-measured since the tin moved to 1.2.0 — through
 [bench.mojo](https://github.com/magmalake/bench.mojo) — mean of three timed
 repetitions, not a best-of-N. Rates below are rows per second, which is what
 the harness reports directly; file sizes are printed by the bench so any
@@ -498,7 +498,7 @@ A hit costs a hash and a memcmp over the schema bytes and a refcount bump.
 ## Test
 
 ```sh
-pixi run -e stable test           # core: stable Mojo 1.1.0
+pixi run -e stable test           # core: stable Mojo 1.2.0
 pixi run -e stable test-cursor    # the schema-compiled reader
 pixi run -e default test          # core: nightly
 pixi run -e default test-cursor
@@ -509,7 +509,7 @@ pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core, cursor and codec suites all run on stable 1.1.0 and on nightly, on
+The core, cursor and codec suites all run on stable 1.2.0 and on nightly, on
 `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same
