@@ -9,6 +9,14 @@ Releases before 0.4.0 predate this file; their contents are in the commit log.
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-11-03
+
+### Changed
+
+- Built against deflate-mojo 0.1.3 (gzip, RFC 1952), the version the
+  registry serves. The codecs environment pins zstd-mojo 0.1.5, whose shim
+  is found without `CONDA_PREFIX`.
+
 ## [0.4.3] - 2026-10-24
 
 ### Changed
