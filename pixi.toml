@@ -2,7 +2,7 @@
 authors = ["Marius S <39998+winding-lines@users.noreply.github.com>"]
 channels = ["https://conda.modular.com/max-nightly", "conda-forge"]
 name = "avro.mojo"
-version = "0.4.4"
+version = "0.4.5"
 description = "Pure-Mojo Apache Avro — schemas, binary encoding, Object Container Files, and the codecs Apache Iceberg needs."
 preview = ["pixi-build"]
 platforms = ["osx-arm64", "linux-64"]
@@ -34,7 +34,7 @@ lint = { cmd = "mojolint --lsp -I src -I tests -I ../deflate.mojo/src -I ../snap
 # Conda package name is avro-mojo; the Mojo import stays `from avro import …`.
 [package]
 name = "avro-mojo"
-version = "0.4.4"
+version = "0.4.5"
 
 [package.build]
 backend = { name = "pixi-build-mojo", version = "0.*" }
@@ -53,14 +53,14 @@ extra-args = ["-I", "$PREFIX/lib/mojo"]
 mojo-compiler = "==1.2.0"
 # Raw DEFLATE for the `deflate` block codec. Lived in this repo until
 # 0.4.0; parquet.mojo and iceberg.mojo wanted it without wanting Avro.
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "6639b18c58fad0e009f4224ec9f792cd919398b4" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "c3dfb87f5b09fb2559449dcb8b748629da4908af" }
 
 [package.build-dependencies]
 mojo-compiler = "==1.2.0"
 
 [package.run-dependencies]
 mojo-compiler = ">=1.2.0,<2"
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "6639b18c58fad0e009f4224ec9f792cd919398b4" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "c3dfb87f5b09fb2559449dcb8b748629da4908af" }
 
 [feature.nightly.dependencies]
 modular = ">=26.8.0.dev2026102305,<28"
@@ -90,7 +90,7 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "76190bb3101
 # path. Stable only: a precompiled Mojo package is stamped with the compiler
 # version that built it and refused by any other, and tins build with 1.2.0.
 [feature.bench.dependencies]
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "6639b18c58fad0e009f4224ec9f792cd919398b4" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "c3dfb87f5b09fb2559449dcb8b748629da4908af" }
 bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "7b6c423bbd9f31d3f126ca00e74994e08d64fe65" }
 
 [feature.bench.tasks]

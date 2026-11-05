@@ -70,7 +70,7 @@ environments:
       - conda: https://conda.modular.com/max-nightly/noarch/mblack-26.7.0-release.conda
       - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.2.0-release.conda
       - conda_source: bench-mojo[493a7e8e] @ git+https://github.com/magmalake/bench.mojo?rev=7b6c423bbd9f31d3f126ca00e74994e08d64fe65#7b6c423bbd9f31d3f126ca00e74994e08d64fe65
-      - conda_source: deflate-mojo[03acc2ee] @ git+https://github.com/magmalake/deflate.mojo?rev=6639b18c58fad0e009f4224ec9f792cd919398b4#6639b18c58fad0e009f4224ec9f792cd919398b4
+      - conda_source: deflate-mojo[8c9b167b] @ git+https://github.com/magmalake/deflate.mojo?rev=c3dfb87f5b09fb2559449dcb8b748629da4908af#c3dfb87f5b09fb2559449dcb8b748629da4908af
       - conda_source: lint-mojo[ebc26d72] @ git+https://github.com/magmalake/lint.mojo?rev=5799cd56eca15ad142a9c8ba300ad45c5eca96f4#5799cd56eca15ad142a9c8ba300ad45c5eca96f4
       osx-arm64:
       - conda: https://conda.anaconda.org/conda-forge/noarch/_python_abi3_support-1.0-hd8ed1ab_3.conda
@@ -119,7 +119,7 @@ environments:
       - conda: https://conda.modular.com/max-nightly/osx-arm64/mojo-1.2.0-release.conda
       - conda: https://conda.modular.com/max-nightly/osx-arm64/mojo-compiler-1.2.0-release.conda
       - conda_source: bench-mojo[5a0281e3] @ git+https://github.com/magmalake/bench.mojo?rev=7b6c423bbd9f31d3f126ca00e74994e08d64fe65#7b6c423bbd9f31d3f126ca00e74994e08d64fe65
-      - conda_source: deflate-mojo[ef0cce6a] @ git+https://github.com/magmalake/deflate.mojo?rev=6639b18c58fad0e009f4224ec9f792cd919398b4#6639b18c58fad0e009f4224ec9f792cd919398b4
+      - conda_source: deflate-mojo[b95a607a] @ git+https://github.com/magmalake/deflate.mojo?rev=c3dfb87f5b09fb2559449dcb8b748629da4908af#c3dfb87f5b09fb2559449dcb8b748629da4908af
       - conda_source: lint-mojo[5229264a] @ git+https://github.com/magmalake/lint.mojo?rev=5799cd56eca15ad142a9c8ba300ad45c5eca96f4#5799cd56eca15ad142a9c8ba300ad45c5eca96f4
   codecs:
     channels:
@@ -11933,8 +11933,8 @@ packages:
   - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hf451053_7.conda
   - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.2.0-release.conda
   - conda: https://conda.modular.com/max-nightly/osx-arm64/mojo-compiler-1.2.0-release.conda
-- conda_source: deflate-mojo[03acc2ee] @ git+https://github.com/magmalake/deflate.mojo?rev=6639b18c58fad0e009f4224ec9f792cd919398b4#6639b18c58fad0e009f4224ec9f792cd919398b4
-  version: 0.1.3
+- conda_source: deflate-mojo[8c9b167b] @ git+https://github.com/magmalake/deflate.mojo?rev=c3dfb87f5b09fb2559449dcb8b748629da4908af#c3dfb87f5b09fb2559449dcb8b748629da4908af
+  version: 0.2.0
   build: hb0f4dca_0
   subdir: linux-64
   variants:
@@ -11991,8 +11991,8 @@ packages:
   - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2026e-h5d301ff_0.conda
   - conda: https://conda.modular.com/max-nightly/linux-64/mojo-compiler-1.2.0-release.conda
   - conda: https://conda.modular.com/max-nightly/noarch/mojo-python-1.2.0-release.conda
-- conda_source: deflate-mojo[ef0cce6a] @ git+https://github.com/magmalake/deflate.mojo?rev=6639b18c58fad0e009f4224ec9f792cd919398b4#6639b18c58fad0e009f4224ec9f792cd919398b4
-  version: 0.1.3
+- conda_source: deflate-mojo[b95a607a] @ git+https://github.com/magmalake/deflate.mojo?rev=c3dfb87f5b09fb2559449dcb8b748629da4908af#c3dfb87f5b09fb2559449dcb8b748629da4908af
+  version: 0.2.0
   build: h60d57d3_0
   subdir: osx-arm64
   variants:
