@@ -11,7 +11,7 @@ proves Python can read ours.
 
 from std.sys import argv
 
-from avro import DataFileWriter, Schema, Value, parse_schema
+from avro import DataFileWriter, Value, parse_schema
 from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
 from avro_codecs import AllCodecs
 

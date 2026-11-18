@@ -15,7 +15,6 @@ from std.collections import Dict
 
 from avro.json import (
     JSON_ARRAY,
-    JSON_INT,
     JSON_OBJECT,
     JSON_STRING,
     JsonDoc,

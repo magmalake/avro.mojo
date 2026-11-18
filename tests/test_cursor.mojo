@@ -27,8 +27,8 @@ from avro import (
 )
 from avro.codec import CodecSet, unknown_codec
 from avro.cursor import DecodePlan, PlanCache, schema_hash
-from avro.schema import ARRAY, BYTES, DOUBLE, ENUM, FIXED, LONG, MAP, STRING
-from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
+from avro.schema import ARRAY, DOUBLE, LONG, MAP, STRING
+from avro.value import ArrayBuilder, RecordBuilder
 
 comptime FIXTURE: StaticString = "tests/fixtures/fastavro_null.avro"
 comptime MANIFEST: StaticString = "tests/fixtures/iceberg_manifest.avro"
