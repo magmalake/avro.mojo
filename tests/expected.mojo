@@ -6,7 +6,7 @@ check the decoded values against what Python wrote, rather than against a
 recording of our own output.
 """
 
-from std.testing import assert_equal, assert_true
+from std.testing import assert_equal
 
 from avro import Schema, Value
 

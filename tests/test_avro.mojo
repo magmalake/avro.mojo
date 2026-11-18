@@ -15,7 +15,7 @@ from avro import (
     parse_schema,
     resolve,
 )
-from avro.schema import ARRAY, ENUM, LONG, MAP, RECORD, STRING, UNION
+from avro.schema import ARRAY, RECORD, UNION
 from avro.value import ArrayBuilder, MapBuilder, RecordBuilder
 from expected import FIXTURE_COUNT, check_everything_record, check_everything_schema
 
