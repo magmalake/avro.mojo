@@ -305,7 +305,7 @@ def _graft_step(mut arena: List[ValueNode], src: List[ValueNode], si: Int) -> In
 
 
 def _short(name: String) -> String:
-    var dot = name.rfind(".")
+    var dot = name.rfind(".").or_else(-1)
     if dot < 0:
         return name
     return String(name[byte=dot + 1 :])
@@ -533,7 +533,7 @@ def resolve(writer: Schema, reader: Schema) raises -> ResolvedReader:
 # ── field defaults (Avro JSON encoding) ────────────────────────────────────
 
 
-def default_value(schema: Schema, i: Int, default_json: StringSlice) raises -> Value:
+def default_value(schema: Schema, i: Int, default_json: StringSpan) raises -> Value:
     """Decode a field's JSON `default` into a `Value` shaped by `schema`."""
     var doc = parse_json(default_json)
     return _default_from(schema, i, doc, doc.root)

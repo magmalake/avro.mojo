@@ -87,11 +87,11 @@ struct SnappyCodecs(CodecSet):
     """`null`, `deflate` and `snappy`."""
 
     @staticmethod
-    def supports(name: StringSlice) -> Bool:
+    def supports(name: StringSpan) -> Bool:
         return not name or name == "null" or name == "deflate" or name == "snappy"
 
     @staticmethod
-    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def compress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         match name:
             case "" | "null":
                 return _copy_of(data)
@@ -103,7 +103,7 @@ struct SnappyCodecs(CodecSet):
                 raise unknown_codec(name)
 
     @staticmethod
-    def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def decompress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         match name:
             case "" | "null":
                 return _copy_of(data)
@@ -119,13 +119,13 @@ struct ZstdCodecs(CodecSet):
     """`null`, `deflate` and `zstandard`."""
 
     @staticmethod
-    def supports(name: StringSlice) -> Bool:
+    def supports(name: StringSpan) -> Bool:
         return (
             not name or name == "null" or name == "deflate" or name == "zstandard"
         )
 
     @staticmethod
-    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def compress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         match name:
             case "" | "null":
                 return _copy_of(data)
@@ -137,7 +137,7 @@ struct ZstdCodecs(CodecSet):
                 raise unknown_codec(name)
 
     @staticmethod
-    def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def decompress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         match name:
             case "" | "null":
                 return _copy_of(data)
@@ -153,7 +153,7 @@ struct AllCodecs(CodecSet):
     """Every codec `avro.mojo` implements: null, deflate, snappy, zstandard."""
 
     @staticmethod
-    def supports(name: StringSlice) -> Bool:
+    def supports(name: StringSpan) -> Bool:
         return (
             not name
             or name == "null"
@@ -163,7 +163,7 @@ struct AllCodecs(CodecSet):
         )
 
     @staticmethod
-    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def compress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         if name == "snappy":
             return avro_snappy_compress(data)
         if name == "zstandard":
@@ -171,7 +171,7 @@ struct AllCodecs(CodecSet):
         return SnappyCodecs.compress(name, data)
 
     @staticmethod
-    def decompress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def decompress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         if name == "snappy":
             return avro_snappy_decompress(data)
         if name == "zstandard":

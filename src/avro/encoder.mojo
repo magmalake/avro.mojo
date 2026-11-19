@@ -85,7 +85,7 @@ struct Encoder(Copyable, Movable, Defaultable, Sized):
         self.write_long(Int64(len(v)))
         self.out.extend(v)
 
-    def write_string(mut self, v: StringSlice):
+    def write_string(mut self, v: StringSpan):
         self.write_bytes(v.as_bytes())
 
     # ── schema-driven encoding ─────────────────────────────────────────────

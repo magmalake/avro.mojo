@@ -80,7 +80,7 @@ comptime SHAPE_JSON: StaticString = (
 )
 
 
-def _mkdir_p(path: StringSlice) raises -> Int:
+def _mkdir_p(path: StringSpan) raises -> Int:
     """`build/bench` — created by writing into it, since std has no mkdir."""
     from std.os import makedirs
 
@@ -101,7 +101,7 @@ def _manifest_shaped_rows() raises -> Tuple[Schema, String, List[Value]]:
         vals.append(Value.string(String("path/to/data/file-", i, ".parquet")))
         vals.append(Value.double(Float64(i) * 0.5))
         vals.append(Value.union(1, Value.long(Int64(i))))
-        rows.append(Value.record(names.copy(), vals^))
+        rows.append(Value.record(names.copy(), vals))
     return (schema^, String(SHAPE_JSON), rows^)
 
 
@@ -173,7 +173,7 @@ def bench_decode_datum(mut b: Benchmark) raises:
 # ── object container files ──────────────────────────────────────────────────
 
 
-def _ocf(codec: StringSlice, rows: List[Value]) raises -> List[UInt8]:
+def _ocf(codec: StringSpan, rows: List[Value]) raises -> List[UInt8]:
     var w = DataFileWriter(parse_schema(SCHEMA_JSON), String(codec))
     for i in range(len(rows)):
         w.append(rows[i])
@@ -270,7 +270,7 @@ def bench_inflate(mut b: Benchmark) raises:
 
 
 def _shape_file(
-    var shape: Tuple[Schema, String, List[Value]], codec: StringSlice
+    var shape: Tuple[Schema, String, List[Value]], codec: StringSpan
 ) raises -> List[UInt8]:
     var schema = shape[0].copy()
     var json = shape[1]
@@ -292,7 +292,7 @@ def _read_values(file: List[UInt8]) raises -> Int:
 
 
 def _read_cursor(file: List[UInt8], var select: List[String]) raises -> Int:
-    var c = RecordCursor.from_bytes(Span(file), select^)
+    var c = RecordCursor.from_bytes(Span(file), select)
     var seen = 0
     while c.next():
         seen += 1
@@ -300,7 +300,7 @@ def _read_cursor(file: List[UInt8], var select: List[String]) raises -> Int:
 
 
 def bench_shape5_null_value(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), null codec, value path."""
+    """Manifest-shaped record (5 fields), null codec, value path."""
     var file = _shape_file(_manifest_shaped_rows(), "null")
     b.throughput(Metric.elements(), N)
 
@@ -312,7 +312,7 @@ def bench_shape5_null_value(mut b: Benchmark) raises:
 
 
 def bench_shape5_null_cursor(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), null codec, cursor path."""
+    """Manifest-shaped record (5 fields), null codec, cursor path."""
     var file = _shape_file(_manifest_shaped_rows(), "null")
     b.throughput(Metric.elements(), N)
 
@@ -324,7 +324,7 @@ def bench_shape5_null_cursor(mut b: Benchmark) raises:
 
 
 def bench_shape5_null_cursor_select(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), null codec, cursor+select path."""
+    """Manifest-shaped record (5 fields), null codec, cursor+select path."""
     var file = _shape_file(_manifest_shaped_rows(), "null")
     var sel: List[String] = ["a"]
     b.throughput(Metric.elements(), N)
@@ -338,7 +338,7 @@ def bench_shape5_null_cursor_select(mut b: Benchmark) raises:
 
 
 def bench_shape5_deflate_value(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), deflate codec, value path."""
+    """Manifest-shaped record (5 fields), deflate codec, value path."""
     var file = _shape_file(_manifest_shaped_rows(), "deflate")
     b.throughput(Metric.elements(), N)
 
@@ -350,7 +350,7 @@ def bench_shape5_deflate_value(mut b: Benchmark) raises:
 
 
 def bench_shape5_deflate_cursor(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), deflate codec, cursor path."""
+    """Manifest-shaped record (5 fields), deflate codec, cursor path."""
     var file = _shape_file(_manifest_shaped_rows(), "deflate")
     b.throughput(Metric.elements(), N)
 
@@ -362,7 +362,7 @@ def bench_shape5_deflate_cursor(mut b: Benchmark) raises:
 
 
 def bench_shape5_deflate_cursor_select(mut b: Benchmark) raises:
-    """manifest-shaped record (5 fields), deflate codec, cursor+select path."""
+    """Manifest-shaped record (5 fields), deflate codec, cursor+select path."""
     var file = _shape_file(_manifest_shaped_rows(), "deflate")
     var sel: List[String] = ["a"]
     b.throughput(Metric.elements(), N)
@@ -376,7 +376,7 @@ def bench_shape5_deflate_cursor_select(mut b: Benchmark) raises:
 
 
 def bench_manifest_null_value(mut b: Benchmark) raises:
-    """iceberg manifest_entry, null codec, value path."""
+    """Iceberg manifest_entry, null codec, value path."""
     var file = _shape_file(_replicated_manifest(), "null")
     b.throughput(Metric.elements(), N)
 
@@ -388,7 +388,7 @@ def bench_manifest_null_value(mut b: Benchmark) raises:
 
 
 def bench_manifest_null_cursor(mut b: Benchmark) raises:
-    """iceberg manifest_entry, null codec, cursor path."""
+    """Iceberg manifest_entry, null codec, cursor path."""
     var file = _shape_file(_replicated_manifest(), "null")
     b.throughput(Metric.elements(), N)
 
@@ -400,7 +400,7 @@ def bench_manifest_null_cursor(mut b: Benchmark) raises:
 
 
 def bench_manifest_null_cursor_select(mut b: Benchmark) raises:
-    """iceberg manifest_entry, null codec, cursor+select path."""
+    """Iceberg manifest_entry, null codec, cursor+select path."""
     var file = _shape_file(_replicated_manifest(), "null")
     var sel: List[String] = ["status", "data_file.file_path", "data_file.record_count"]
     b.throughput(Metric.elements(), N)
@@ -414,7 +414,7 @@ def bench_manifest_null_cursor_select(mut b: Benchmark) raises:
 
 
 def bench_manifest_deflate_value(mut b: Benchmark) raises:
-    """iceberg manifest_entry, deflate codec, value path."""
+    """Iceberg manifest_entry, deflate codec, value path."""
     var file = _shape_file(_replicated_manifest(), "deflate")
     b.throughput(Metric.elements(), N)
 
@@ -426,7 +426,7 @@ def bench_manifest_deflate_value(mut b: Benchmark) raises:
 
 
 def bench_manifest_deflate_cursor(mut b: Benchmark) raises:
-    """iceberg manifest_entry, deflate codec, cursor path."""
+    """Iceberg manifest_entry, deflate codec, cursor path."""
     var file = _shape_file(_replicated_manifest(), "deflate")
     b.throughput(Metric.elements(), N)
 
@@ -438,7 +438,7 @@ def bench_manifest_deflate_cursor(mut b: Benchmark) raises:
 
 
 def bench_manifest_deflate_cursor_select(mut b: Benchmark) raises:
-    """iceberg manifest_entry, deflate codec, cursor+select path."""
+    """Iceberg manifest_entry, deflate codec, cursor+select path."""
     var file = _shape_file(_replicated_manifest(), "deflate")
     var sel: List[String] = ["status", "data_file.file_path", "data_file.record_count"]
     b.throughput(Metric.elements(), N)
@@ -455,7 +455,7 @@ def _print_shape() raises:
     """File sizes, the record-count checks, and the `build/bench/` files that
     `tools/bench_fastavro.py` reads. None of it belongs in a timed region."""
     try:
-        _mkdir_p("build/bench")
+        _ = _mkdir_p("build/bench")
     except:
         pass
 

@@ -37,6 +37,7 @@ jobs:
       # The test legs below are skipped on release PRs, and the consumer build
       # is the check (the tests build against sibling checkouts (../deflate.mojo, ...)).
       task: ""
+      mojo-compiler: "==1.3.0.dev2026111805"
 
   test:
     needs: release
@@ -44,14 +45,13 @@ jobs:
     # deflate.mojo (raw DEFLATE, pure Mojo) is checked out next to this repo
     # and put on the include path — the `deflate` block codec needs it. The
     # pixi git source dependency is what a *consumer* resolves; in CI the
-    # sources are compiled directly, so the two toolchains can both build it.
-    name: ${{ matrix.env == 'default' && 'nightly' || matrix.env }} / ${{ matrix.os }}
+    # sources are compiled directly.
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
-        env: [default, stable]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -69,15 +69,14 @@ jobs:
           # rejects the committed lock with "lock file not up-to-date".
           pixi-version: v0.78.0
           manifest-path: avro.mojo/pixi.toml
-          environments: ${{ matrix.env }}
 
       - name: Unit tests
         working-directory: avro.mojo
-        run: pixi run -e ${{ matrix.env }} test
+        run: pixi run test
 
       - name: Cursor tests
         working-directory: avro.mojo
-        run: pixi run -e ${{ matrix.env }} test-cursor
+        run: pixi run test-cursor
 
   codecs:
     needs: release
@@ -85,19 +84,12 @@ jobs:
     # The optional snappy / zstandard codecs. The sources are checked out next
     # to this repo and put on the include path; the pixi git source
     # dependencies are still what installs libzstd and its dlopen shim.
-    # Stable only: the source build also drops a `.mojoc` compiled with the
-    # stable toolchain (1.2.0) into the environment, and a nightly compiler
-    # refuses to load it — pixi builds a source dependency once and installs
-    # the same artifact into every environment, so the two cannot differ
-    # (prefix-dev/pixi#6940). `codecs` stays in pixi.toml for local use with a
-    # matching compiler.
-    name: codecs stable / ${{ matrix.os }}
+    name: codecs / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         os: ${{ fromJSON((github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && '["ubuntu-latest", "macos-latest"]' || '["ubuntu-latest"]') }}
-        env: [codecs-stable]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -122,15 +114,15 @@ jobs:
         with:
           pixi-version: v0.78.0
           manifest-path: avro.mojo/pixi.toml
-          environments: ${{ matrix.env }}
+          environments: codecs
 
       - name: Codec tests
         working-directory: avro.mojo
-        run: pixi run -e ${{ matrix.env }} test-codecs
+        run: pixi run -e codecs test-codecs
 
       - name: Lint (mojolint --lsp)
         working-directory: avro.mojo
-        run: pixi run -e ${{ matrix.env }} lint
+        run: pixi run -e codecs lint
 
   # Imports: no cycles between modules, and each name imported from the
   # module that defines it (github.com/magmalake/customs).

@@ -93,7 +93,7 @@ struct JsonDoc(Copyable, Movable, Writable):
     def key_at(self, i: Int, k: Int) -> String:
         return self.nodes[i].keys[k]
 
-    def get(self, i: Int, name: StringSlice) -> Int:
+    def get(self, i: Int, name: StringSpan) -> Int:
         """Object member lookup by name; -1 when absent."""
         ref n = self.nodes[i]
         for k in range(len(n.keys)):
@@ -101,7 +101,7 @@ struct JsonDoc(Copyable, Movable, Writable):
                 return n.kids[k]
         return -1
 
-    def has(self, i: Int, name: StringSlice) -> Bool:
+    def has(self, i: Int, name: StringSpan) -> Bool:
         return self.get(i, name) != -1
 
     # ── writing ────────────────────────────────────────────────────────────
@@ -144,7 +144,7 @@ struct JsonDoc(Copyable, Movable, Writable):
         writer.write(self.to_json(self.root))
 
 
-def write_json_string(s: StringSlice, mut out: String):
+def write_json_string(s: StringSpan, mut out: String):
     """Append `s` to `out` as a quoted, escaped JSON string."""
     out += '"'
     for b in s.as_bytes():
@@ -169,7 +169,7 @@ def write_json_string(s: StringSlice, mut out: String):
         else:
             # Pass every other byte through: the input is already UTF-8 and
             # JSON permits raw UTF-8 in strings.
-            out += StringSlice(unsafe_from_utf8=Span(_one_byte(b)))
+            out += StringSpan(unsafe_from_utf8=Span(_one_byte(b)))
     out += '"'
 
 
@@ -190,7 +190,7 @@ struct _JsonParser(Copyable, Movable):
     var pos: Int
     var doc: JsonDoc
 
-    def __init__(out self, text: StringSlice):
+    def __init__(out self, text: StringSpan):
         self.src = List[UInt8](capacity=text.byte_length())
         self.src.extend(text.as_bytes())
         self.pos = 0
@@ -199,7 +199,7 @@ struct _JsonParser(Copyable, Movable):
         # a little and never grows the arena for a document of this size.
         self.doc.nodes.reserve(text.byte_length() // 8 + 8)
 
-    def _fail(self, msg: StringSlice) raises -> Int:
+    def _fail(self, msg: StringSpan) raises -> Int:
         raise Error(String("avro.json: ", msg, " at byte ", self.pos))
 
     def _skip_ws(mut self):
@@ -220,7 +220,7 @@ struct _JsonParser(Copyable, Movable):
             _ = self._fail(
                 String(
                     "expected '",
-                    StringSlice(unsafe_from_utf8=Span(_one_byte(c))),
+                    StringSpan(unsafe_from_utf8=Span(_one_byte(c))),
                     "'",
                 )
             )
@@ -270,7 +270,7 @@ struct _JsonParser(Copyable, Movable):
             return self._push(JsonNode.scalar(JSON_NULL))
         return self._number()
 
-    def _lit(mut self, word: StringSlice) raises:
+    def _lit(mut self, word: StringSpan) raises:
         var w = word.as_bytes()
         if self.pos + len(w) > len(self.src):
             _ = self._fail("truncated literal")
@@ -470,7 +470,7 @@ def _encode_utf8(cp: Int, mut buf: List[UInt8]):
         buf.append(UInt8(0x80 | (cp & 0x3F)))
 
 
-def parse_json(text: StringSlice) raises -> JsonDoc:
+def parse_json(text: StringSpan) raises -> JsonDoc:
     """Parse `text` into a `JsonDoc`."""
     var p = _JsonParser(text)
     var root = p.parse()

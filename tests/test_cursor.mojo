@@ -89,7 +89,7 @@ def test_selection_prunes_the_slot_table() raises:
 # ── cross-checking every type against the Value path ───────────────────────
 
 
-def _check_against_value(path: StringSlice) raises -> Int:
+def _check_against_value(path: StringSpan) raises -> Int:
     """Read `path` twice — cursor and `Value` — and compare every field."""
     var v = DataFileReader.open(path)
     var c = RecordCursor.open(path)
@@ -582,11 +582,11 @@ struct StoredDeflate(CodecSet):
     """
 
     @staticmethod
-    def supports(name: StringSlice) -> Bool:
+    def supports(name: StringSpan) -> Bool:
         return not name or name == "null" or name == "deflate"
 
     @staticmethod
-    def compress(name: StringSlice, data: Span[UInt8, _]) raises -> List[UInt8]:
+    def compress(name: StringSpan, data: Span[UInt8, _]) raises -> List[UInt8]:
         if not name or name == "null":
             var copy = List[UInt8](capacity=len(data))
             copy.extend(data)
@@ -613,7 +613,7 @@ struct StoredDeflate(CodecSet):
 
     @staticmethod
     def decompress(
-        name: StringSlice, data: Span[UInt8, _]
+        name: StringSpan, data: Span[UInt8, _]
     ) raises -> List[UInt8]:
         return DefaultCodecs.decompress(name, data)
 

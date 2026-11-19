@@ -299,17 +299,17 @@ struct DecodePlan(Copyable, Movable):
     def root(self) -> Int:
         return self.data[].root
 
-    def try_slot(self, path: StringSlice) raises -> Int:
+    def try_slot(self, path: StringSpan) raises -> Int:
         """The slot for `path`, or -1 when the schema has no such field."""
         var k = String(path)
         if k in self.data[].by_path:
             return self.data[].by_path[k]
         return -1
 
-    def has_slot(self, path: StringSlice) raises -> Bool:
+    def has_slot(self, path: StringSpan) raises -> Bool:
         return self.try_slot(path) >= 0
 
-    def slot_of(self, path: StringSlice) raises -> Int:
+    def slot_of(self, path: StringSpan) raises -> Int:
         var s = self.try_slot(path)
         if s < 0:
             raise Error(
@@ -532,7 +532,7 @@ struct PlanCache(Movable, Sized):
         return self._plans[i].copy()
 
 
-def _child_path(parent: String, name: StringSlice) -> String:
+def _child_path(parent: String, name: StringSpan) -> String:
     if not parent:
         return String(name)
     return String(parent, ".", name)
@@ -1348,7 +1348,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
         return Self(reader^, plan^)
 
     @staticmethod
-    def open(path: StringSlice, select: List[String] = []) raises -> Self:
+    def open(path: StringSpan, select: List[String] = []) raises -> Self:
         return Self.of(DataFileReader[Self.C].open(path), select)
 
     @staticmethod
@@ -1402,7 +1402,7 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
 
     @staticmethod
     def open_cached(
-        path: StringSlice, mut cache: PlanCache, select: List[String] = []
+        path: StringSpan, mut cache: PlanCache, select: List[String] = []
     ) raises -> Self:
         return Self.of_cached(
             DataFileReader[Self.C](read_file_bytes(path), defer_schema=True),
@@ -1546,9 +1546,9 @@ struct RecordCursor[C: CodecSet = DefaultCodecs](Movable):
 
     def get_str(
         self, slot: Int, k: Int = 0
-    ) raises -> StringSlice[origin_of(self.reader.block)]:
+    ) raises -> StringSpan[origin_of(self.reader.block)]:
         """The field as text, without copying. Same lifetime as `get_bytes`."""
-        return StringSlice(unsafe_from_utf8=self.get_bytes(slot, k))
+        return StringSpan(unsafe_from_utf8=self.get_bytes(slot, k))
 
     def get_string(self, slot: Int, k: Int = 0) -> String:
         """An owned copy of the field's text."""
