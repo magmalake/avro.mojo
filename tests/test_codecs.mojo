@@ -60,7 +60,7 @@ def test_snappy_block_framing() raises:
     assert_true(failed)
 
 
-def ocf_round_trip[C: CodecSet](codec: StringSlice, n: Int) raises:
+def ocf_round_trip[C: CodecSet](codec: StringSpan, n: Int) raises:
     var w = DataFileWriter[C](sample_schema(), codec, 700)
     for i in range(n):
         w.append(sample_row(i))
@@ -91,7 +91,7 @@ def test_all_codecs_round_trip() raises:
     ocf_round_trip[AllCodecs]("zstandard", 200)
 
 
-def read_fastavro_fixture(codec: StringSlice) raises:
+def read_fastavro_fixture(codec: StringSpan) raises:
     var r = DataFileReader[AllCodecs].open(
         String("tests/fixtures/fastavro_", codec, ".avro")
     )

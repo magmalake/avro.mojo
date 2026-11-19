@@ -129,13 +129,13 @@ struct Value(Copyable, Movable, Writable, Equatable, Sized):
         return Value._single(n^)
 
     @staticmethod
-    def string(v: StringSlice) -> Value:
+    def string(v: StringSpan) -> Value:
         var n = ValueNode.of(STRING)
         n.s = String(v)
         return Value._single(n^)
 
     @staticmethod
-    def enum(index: Int, symbol: StringSlice) -> Value:
+    def enum(index: Int, symbol: StringSpan) -> Value:
         var n = ValueNode.of(ENUM)
         n.i = Int64(index)
         n.s = String(symbol)
@@ -252,7 +252,7 @@ struct Value(Copyable, Movable, Writable, Equatable, Sized):
         """Name of child `k` — a record field name or a map key."""
         return self.arena[][self.idx].keys[k]
 
-    def index_of(self, name: StringSlice) -> Int:
+    def index_of(self, name: StringSpan) -> Int:
         """Position of a record field or map key, or -1 when absent."""
         ref n = self.arena[][self.idx]
         for k in range(len(n.keys)):
@@ -260,17 +260,17 @@ struct Value(Copyable, Movable, Writable, Equatable, Sized):
                 return k
         return -1
 
-    def has(self, name: StringSlice) -> Bool:
+    def has(self, name: StringSpan) -> Bool:
         return self.index_of(name) >= 0
 
-    def field(self, name: StringSlice) raises -> Value:
+    def field(self, name: StringSpan) raises -> Value:
         """A record field (or map entry) by name, unwrapping unions."""
         var k = self.index_of(name)
         if k < 0:
             raise Error(String("avro.Value: no field '", name, "'"))
         return self.at(k).unwrap()
 
-    def field_raw(self, name: StringSlice) raises -> Value:
+    def field_raw(self, name: StringSpan) raises -> Value:
         """A record field by name, keeping any union wrapper."""
         var k = self.index_of(name)
         if k < 0:
@@ -439,7 +439,7 @@ struct RecordBuilder(Copyable, Movable, Defaultable):
         self.names = move.names^
         self.values = move.values^
 
-    def add(mut self, name: StringSlice, value: Value):
+    def add(mut self, name: StringSpan, value: Value):
         self.names.append(String(name))
         self.values.append(value.copy())
 
@@ -486,7 +486,7 @@ struct MapBuilder(Copyable, Movable, Defaultable):
         self.keys = move.keys^
         self.values = move.values^
 
-    def add(mut self, key: StringSlice, value: Value):
+    def add(mut self, key: StringSpan, value: Value):
         self.keys.append(String(key))
         self.values.append(value.copy())
 

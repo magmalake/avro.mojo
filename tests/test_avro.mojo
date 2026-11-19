@@ -32,13 +32,13 @@ def hex_of(data: Span[UInt8, _]) -> String:
     return out^
 
 
-def bytes_of(text: StringSlice) -> List[UInt8]:
+def bytes_of(text: StringSpan) -> List[UInt8]:
     var out = List[UInt8]()
     out.extend(text.as_bytes())
     return out^
 
 
-def from_hex(text: StringSlice) raises -> List[UInt8]:
+def from_hex(text: StringSpan) raises -> List[UInt8]:
     var out = List[UInt8]()
     var bs = text.as_bytes()
     var i = 0
@@ -411,7 +411,7 @@ def sample_row(i: Int) raises -> Value:
     return b^.build()
 
 
-def ocf_round_trip(codec: StringSlice, n: Int, sync_interval: Int) raises:
+def ocf_round_trip(codec: StringSpan, n: Int, sync_interval: Int) raises:
     var w = DataFileWriter(sample_schema(), codec, sync_interval)
     w.set_metadata_string("app", "avro.mojo")
     for i in range(n):
@@ -534,8 +534,8 @@ def arr_items(s: Schema, i: Int) -> Int:
 def test_iceberg_manifest() raises:
     var r = DataFileReader.open("tests/fixtures/iceberg_manifest.avro")
     assert_equal(r.metadata_string("format-version"), "2")
-    assert_true(r.metadata_string("schema").find('"fields"') >= 0)
-    assert_true(r.metadata_string("partition-spec").find("region") >= 0)
+    assert_true('"fields"' in r.metadata_string("schema"))
+    assert_true("region" in r.metadata_string("partition-spec"))
     ref s = r.schema
     assert_equal(s.name(s.root), "manifest_entry")
     assert_equal(s.field(s.root, 0).name, "status")
@@ -731,7 +731,7 @@ def test_resolve_rejects_impossible() raises:
 # ── files written by Python fastavro ───────────────────────────────────────
 
 
-def read_fastavro_fixture(codec: StringSlice) raises:
+def read_fastavro_fixture(codec: StringSpan) raises:
     var r = DataFileReader.open(
         String("tests/fixtures/fastavro_", codec, ".avro")
     )

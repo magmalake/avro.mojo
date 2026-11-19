@@ -28,7 +28,7 @@ def check_everything_schema(s: Schema) raises:
     assert_equal(s.to_json(), Schema(copy=s).to_json())
 
 
-def _need(ok: Bool, what: StringSlice, i: Int) raises:
+def _need(ok: Bool, what: StringSpan, i: Int) raises:
     """Cheap per-record check.
 
     `assert_equal` carries enough machinery that calling it 30 times per

@@ -358,8 +358,7 @@ The sibling tins arrive as pixi **git source dependencies** in the `codecs`
 feature, not path dependencies: pixi solves every environment even when it
 installs only one, so a path dependency to `../zstd.mojo` would break
 `pixi install` for anyone who cloned just this repo. Both tins also install a
-`lib/mojo/*.mojoc`, but those are built with the stable toolchain and the
-nightly compiler cannot load them, so `test-codecs` compiles the siblings
+`lib/mojo/*.mojoc`, but `test-codecs` compiles the siblings
 from source (`-I ../snappy.mojo/src -I ../zstd.mojo/src`) and CI checks the
 two repos out next to this one.
 
@@ -498,18 +497,15 @@ A hit costs a hash and a memcmp over the schema bytes and a refcount bump.
 ## Test
 
 ```sh
-pixi run -e stable test           # core: stable Mojo 1.2.0
-pixi run -e stable test-cursor    # the schema-compiled reader
-pixi run -e default test          # core: nightly
-pixi run -e default test-cursor
-pixi run -e codecs-stable test-codecs   # + snappy / zstandard
-pixi run -e codecs test-codecs          # ditto, nightly
+pixi run test                     # core: Mojo 1.3.0.dev2026111805
+pixi run test-cursor              # the schema-compiled reader
+pixi run -e codecs test-codecs    # + snappy / zstandard
 pixi run bench
 pixi run bench-fastavro           # the same files, read by fastavro (needs uv)
 pixi run -e codecs crosscheck     # our files, read by fastavro (needs uv)
 ```
 
-The core, cursor and codec suites all run on stable 1.2.0 and on nightly, on
+The core, cursor and codec suites all run on the pinned Mojo nightly, on
 `osx-arm64` and `linux-64`.
 
 The cursor suite's oracle is the `Value` path: both readers decode the same

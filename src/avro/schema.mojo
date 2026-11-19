@@ -74,7 +74,7 @@ def kind_name(kind: Int) -> String:
             return "?"
 
 
-def primitive_kind(name: StringSlice) -> Int:
+def primitive_kind(name: StringSpan) -> Int:
     """Kind for a primitive type name, or -1 if `name` is not primitive."""
     match name:
         case "null":
@@ -130,20 +130,20 @@ struct Props(Copyable, Movable, Defaultable, Sized):
         self.keys.append(key^)
         self.vals.append(raw_json^)
 
-    def get(self, key: StringSlice) -> String:
+    def get(self, key: StringSpan) -> String:
         """Raw JSON text for `key`, or "" when absent."""
         for k in range(len(self.keys)):
             if self.keys[k] == key:
                 return self.vals[k]
         return String()
 
-    def has(self, key: StringSlice) -> Bool:
+    def has(self, key: StringSpan) -> Bool:
         for k in range(len(self.keys)):
             if self.keys[k] == key:
                 return True
         return False
 
-    def get_int(self, key: StringSlice, default: Int = -1) -> Int:
+    def get_int(self, key: StringSpan, default: Int = -1) -> Int:
         """Integer property value, or `default` when absent or not a number."""
         var raw = self.get(key)
         if not raw:
@@ -233,7 +233,7 @@ struct SchemaNode(Copyable, Movable):
         )
 
     def short_name(self) -> String:
-        var dot = self.name.rfind(".")
+        var dot = self.name.rfind(".").or_else(-1)
         if dot < 0:
             return self.name
         return String(self.name[byte = dot + 1 :])
@@ -291,7 +291,7 @@ struct Schema(Copyable, Movable, Writable):
     def field(self, i: Int, k: Int) -> Field:
         return self.nodes[i].fields[k].copy()
 
-    def field_index(self, i: Int, name: StringSlice) -> Int:
+    def field_index(self, i: Int, name: StringSpan) -> Int:
         """Position of the named field in record node `i`, or -1."""
         ref n = self.nodes[i]
         for k in range(len(n.fields)):
@@ -601,9 +601,9 @@ comptime _KNOWN_TYPE_KEYS = (
 )
 
 
-def _is_known_key(key: StringSlice) -> Bool:
+def _is_known_key(key: StringSpan) -> Bool:
     var probe = String(" ", key, " ")
-    return String(" ", _KNOWN_TYPE_KEYS, " ").find(probe) >= 0
+    return probe in String(" ", _KNOWN_TYPE_KEYS, " ")
 
 
 struct _SchemaParser(Copyable, Movable):
@@ -659,7 +659,7 @@ struct _SchemaParser(Copyable, Movable):
     def _lookup(mut self, name: String, enclosing_ns: String) raises -> Int:
         if name in self.schema.names:
             return self.schema.names[name]
-        if enclosing_ns and name.find(".") < 0:
+        if enclosing_ns and "." not in name:
             var full = String(enclosing_ns, ".", name)
             if full in self.schema.names:
                 return self.schema.names[full]
@@ -698,7 +698,7 @@ struct _SchemaParser(Copyable, Movable):
             if nj < 0:
                 raise Error(String("avro.schema: ", tname, " without a 'name'"))
             var raw = self.doc.as_string(nj)
-            var dot = raw.rfind(".")
+            var dot = raw.rfind(".").or_else(-1)
             if dot >= 0:
                 ns = String(raw[byte=:dot])
                 node.name = raw
@@ -808,7 +808,7 @@ struct _SchemaParser(Copyable, Movable):
         return f^
 
 
-def parse_schema(text: StringSlice) raises -> Schema:
+def parse_schema(text: StringSpan) raises -> Schema:
     """Parse an Avro schema from its JSON text."""
     var doc = parse_json(text)
     var p = _SchemaParser(doc^)
