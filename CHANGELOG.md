@@ -9,6 +9,12 @@ Releases before 0.4.0 predate this file; their contents are in the commit log.
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-11-25
+
+### Changed
+
+- Pins deflate-mojo 0.3.1, lint-mojo 0.2.1, snappy-mojo 0.2.1, zstd-mojo 0.3.0.
+
 ## [0.5.0] - 2026-11-20
 
 ### Changed
