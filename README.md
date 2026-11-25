@@ -497,7 +497,7 @@ A hit costs a hash and a memcmp over the schema bytes and a refcount bump.
 ## Test
 
 ```sh
-pixi run test                     # core: Mojo 1.3.0.dev2026111805
+pixi run test                     # core: Mojo 1.3.0.dev2026112505
 pixi run test-cursor              # the schema-compiled reader
 pixi run -e codecs test-codecs    # + snappy / zstandard
 pixi run bench
