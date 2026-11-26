@@ -50,17 +50,17 @@ name = "avro"
 extra-args = ["-I", "$PREFIX/lib/mojo"]
 
 [package.host-dependencies]
-mojo-compiler = "==1.3.0.dev2026112505"
+mojo-compiler = "==1.3.0.dev2026112605"
 # Raw DEFLATE for the `deflate` block codec. Lived in this repo until
 # 0.4.0; parquet.mojo and iceberg.mojo wanted it without wanting Avro.
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ed181e29e5c4417e1b7489fa3f0b39968e80d53e" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ab4f29f9bcdca7ce76f820c78bc200f614c71a46" }
 
 [package.build-dependencies]
-mojo-compiler = "==1.3.0.dev2026112505"
+mojo-compiler = "==1.3.0.dev2026112605"
 
 [package.run-dependencies]
-mojo-compiler = "==1.3.0.dev2026112505"
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ed181e29e5c4417e1b7489fa3f0b39968e80d53e" }
+mojo-compiler = "==1.3.0.dev2026112605"
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ab4f29f9bcdca7ce76f820c78bc200f614c71a46" }
 
 # ── optional codecs ─────────────────────────────────────────────────────────
 # The sibling tins come in as pixi *git source* dependencies, not path
@@ -75,8 +75,8 @@ deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ed181
 # `-I ../snappy.mojo/src -I ../zstd.mojo/src` instead. CI checks the two repos
 # out next to this one.
 [feature.codecs.dependencies]
-snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo", rev = "97bd98c1141329b158bf67b19a17ac228e727d10" }
-zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "d0752506a54990d23500a601f6ca46933c4afc93" }
+snappy-mojo = { git = "https://github.com/magmalake/snappy.mojo", rev = "841165c6ced116af46f1ad16567dcdac797fc30f" }
+zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "2936d2023ff8654954c5ce37431f4086f0fc08f3" }
 
 # Benchmarks run through the shared harness (magmalake/bench.mojo) and get
 # their own feature, so the tin stays out of the environments that run tests.
@@ -84,8 +84,8 @@ zstd-mojo = { git = "https://github.com/magmalake/zstd.mojo", rev = "d0752506a54
 # path. The package is built with the same pinned nightly as this workspace;
 # a precompiled Mojo package loads only in the compiler version that built it.
 [feature.bench.dependencies]
-deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ed181e29e5c4417e1b7489fa3f0b39968e80d53e" }
-bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "3c5bfdb78bf5fa3082482a200f3ba01ad6466069" }
+deflate-mojo = { git = "https://github.com/magmalake/deflate.mojo", rev = "ab4f29f9bcdca7ce76f820c78bc200f614c71a46" }
+bench-mojo = { git = "https://github.com/magmalake/bench.mojo", rev = "cc6abec63645def673320f193c55cc485b3b21dd" }
 
 [feature.bench.tasks]
 bench = "mkdir -p build && mojo build -I src -I $CONDA_PREFIX/lib/mojo bench/bench_avro.mojo -o build/bench-avro && ./build/bench-avro"
@@ -103,8 +103,8 @@ bench = ["bench"]
 # version that built it, so the pin is exact here and in [package] above, and
 # it moves across all magmalake tins together.
 [dependencies]
-mojo-compiler = "==1.3.0.dev2026112505"
+mojo-compiler = "==1.3.0.dev2026112605"
 # Added by `pixi shelf add lint-mojo`: the linter comes from GitHub as a pixi
 # source dependency pinned at the revision mojoshelf published, and builds
 # the `mojolint` executable into every environment next to mojo-lsp-server.
-lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "503a9c6d8fc5114f24a9e3355680a0024167bdb3" }
+lint-mojo = { git = "https://github.com/magmalake/lint.mojo.git", rev = "076a7a349917151ff8016079a036654865b3ccc1" }
